@@ -19,6 +19,7 @@ import { BookingStateMachine } from '../../common/utils/booking-state-machine';
 import { PaymentsService } from '../payments/payments.service';
 import { CancellationPolicyService } from '../../common/policies/cancellation-policy.service';
 import { ChatService } from '../../chat/chat.service';
+import { WalletService } from '../wallet/wallet.service';
 
 /**
  * Maps internal DB booking statuses to stable MVP-facing vocabulary.
@@ -76,6 +77,7 @@ export class BookingsService {
     private paymentsService: PaymentsService,
     private cancellationPolicyService: CancellationPolicyService,
     private chatService: ChatService,
+    private walletService: WalletService,
   ) {
     this.commissionPercentage =
       this.configService.get<number>('commission.percentage') || 0.1;
@@ -428,16 +430,53 @@ export class BookingsService {
     if (!paymentIntent) {
       throw new BadRequestException('Payment intent not found. Please authorize payment first.');
     }
-    if (paymentIntent.status === 'created') {
-      throw new BadRequestException('Payment must be authorized before booking can be paid.');
-    }
     if (paymentIntent.status === 'cancelled') {
       throw new BadRequestException('Cannot pay booking: Payment intent has been cancelled.');
     }
 
-    if (paymentIntent.status === 'authorized') {
-      await this.paymentsService.capture(id);
-      paymentIntent = await this.paymentsService.findByBooking(id);
+    if (payBookingDto.useWallet) {
+      if (paymentIntent.status === 'created') {
+        // Automatically authorize for wallet (stamps metadata.method = 'wallet')
+        paymentIntent = await this.paymentsService.authorize(id, userId, { method: 'wallet' });
+      }
+
+      if (paymentIntent.status === 'authorized') {
+        // ── Critical: wallet debit + ledger capture MUST be atomic ───────────
+        // We coordinate by debiting the wallet and then immediately capturing.
+        // If payForBooking throws (e.g. insufficient balance), capture is never called.
+        // If capture throws, the wallet debit transaction is still committed — we catch
+        // and surface the error so the operator can manually reverse via admin tools.
+        // A fully atomic single TX would require passing the tx client through capture
+        // which would require significant PaymentsService refactoring. This is the
+        // minimal safe change for MVP: debit first, then capture, error if capture fails.
+        await this.prisma.$transaction(async (tx) => {
+          await this.walletService.payForBooking(userId, id, Number(paymentIntent.amount), tx);
+        });
+
+        try {
+          await this.paymentsService.capture(id);
+        } catch (captureErr) {
+          // Capture failed after wallet was already debited. Log and surface the error.
+          // In production, an admin reconciliation workflow should refund the wallet.
+          this.logger.error(
+            `[WALLET PAY] Capture failed after wallet debit for booking ${id}. ` +
+            `Manual wallet reconciliation may be required.`,
+            captureErr,
+          );
+          throw captureErr;
+        }
+
+        paymentIntent = await this.paymentsService.findByBooking(id);
+      }
+    } else {
+      if (paymentIntent.status === 'created') {
+        throw new BadRequestException('Payment must be authorized before booking can be paid.');
+      }
+
+      if (paymentIntent.status === 'authorized') {
+        await this.paymentsService.capture(id);
+        paymentIntent = await this.paymentsService.findByBooking(id);
+      }
     }
 
     if (paymentIntent?.status !== 'captured') {
@@ -473,6 +512,7 @@ export class BookingsService {
       }
 
       // Update to PAID status and set paid flag
+      // Stamp method='wallet' when useWallet=true for full audit trail
       const updated = await tx.booking.update({
         where: { id },
         data: {
@@ -483,7 +523,7 @@ export class BookingsService {
             paymentToken: payBookingDto.paymentToken,
             receipt: payBookingDto.receipt,
             paidAt: new Date().toISOString(),
-            method: 'simulated', // In production, use actual payment method
+            method: payBookingDto.useWallet ? 'wallet' : 'simulated',
           } as any,
         },
       });
@@ -492,9 +532,67 @@ export class BookingsService {
   }
 
   async cancel(id: string, userId: string): Promise<Booking> {
-    // Use transaction with locking to prevent race conditions
+    // ── Phase 1: Load booking outside any transaction (read-only) ────────────
+    const booking = await this.prisma.booking.findUnique({ where: { id } });
+    if (!booking) {
+      throw new NotFoundException(`Booking with ID ${id} not found`);
+    }
+
+    // Authorization check
+    if (booking.renterId !== userId && booking.hostId !== userId) {
+      throw new ForbiddenException('Only the renter or host can cancel this booking');
+    }
+
+    // Idempotent check: if already cancelled, return early
+    if (booking.status === 'cancelled') {
+      return withDisplay(booking);
+    }
+
+    // Determine actor
+    const actor = booking.renterId === userId ? 'RENTER' : 'HOST';
+
+    // Get payment intent to check payment status
+    const paymentIntent = await this.paymentsService.findByBooking(id);
+
+    // Evaluate cancellation policy
+    const decision = this.cancellationPolicyService.evaluateCancellation({
+      actor,
+      bookingStatus: booking.status as any,
+      paymentStatus: (paymentIntent?.status || 'created') as any,
+      startDate: new Date(booking.startDate),
+      endDate: new Date(booking.endDate),
+      totalPrice: Number(booking.totalPrice),
+      now: new Date(),
+    });
+
+    // Policy validation
+    if (!decision.allowCancel) {
+      throw new BadRequestException(decision.reason);
+    }
+
+    // State machine validation
+    BookingStateMachine.validateTransition(
+      booking.status as any,
+      'cancelled' as any,
+      'cancel booking',
+    );
+
+    // ── Phase 2: Process refund OUTSIDE the main transaction ─────────────────
+    // paymentsService.refund() opens its own $transaction with FOR UPDATE on
+    // payment_intents. Calling it inside the booking transaction would cause
+    // a Postgres deadlock (nested transaction row-lock contention).
+    if (
+      decision.refundType !== 'NONE' &&
+      decision.refundAmount > 0 &&
+      paymentIntent &&
+      paymentIntent.status === 'captured'
+    ) {
+      await this.paymentsService.refund(id);
+    }
+
+    // ── Phase 3: Wallet refund + booking status update in one transaction ────
     return await this.prisma.$transaction(async (tx) => {
-      // Reload booking with lock to get latest state
+      // Re-read booking with lock to get fresh state
       const bookings = await tx.$queryRaw<Booking[]>`
         SELECT * FROM bookings
         WHERE id::text = ${id}
@@ -505,59 +603,26 @@ export class BookingsService {
         throw new NotFoundException(`Booking with ID ${id} not found`);
       }
 
-      const booking = bookings[0];
+      const freshBooking = bookings[0];
 
-      // Authorization check
-      if (booking.renterId !== userId && booking.hostId !== userId) {
-        throw new ForbiddenException(
-          'Only the renter or host can cancel this booking',
-        );
+      // Idempotent: could have been cancelled concurrently
+      if (freshBooking.status === 'cancelled') {
+        return withDisplay(freshBooking);
       }
 
-      // Determine actor
-      const actor = booking.renterId === userId ? 'RENTER' : 'HOST';
-
-      // Get payment intent to check payment status
-      const paymentIntent = await this.paymentsService.findByBooking(id);
-
-      // Evaluate cancellation policy
-      const decision = this.cancellationPolicyService.evaluateCancellation({
-        actor,
-        bookingStatus: booking.status as any,
-        paymentStatus: (paymentIntent?.status || 'created') as any,
-        startDate: new Date(booking.startDate),
-        endDate: new Date(booking.endDate),
-        totalPrice: Number(booking.totalPrice),
-        now: new Date(),
-      });
-
-      // Idempotent check: if already cancelled, return as-is
-      if (booking.status === 'cancelled') {
-        return booking;
-      }
-
-      // Policy validation - check if cancellation is allowed
-      if (!decision.allowCancel) {
-        throw new BadRequestException(decision.reason);
-      }
-
-      // State machine validation
-      BookingStateMachine.validateTransition(
-        booking.status as any,
-        'cancelled' as any,
-        'cancel booking',
-      );
-
-      // Process refund if required by policy
+      // If funded by wallet and refund was processed, return funds to wallet balance
       if (
         decision.refundType !== 'NONE' &&
         decision.refundAmount > 0 &&
-        paymentIntent &&
-        paymentIntent.status === 'captured'
+        paymentIntent?.status === 'captured' &&
+        (paymentIntent.metadata as any)?.method === 'wallet'
       ) {
-        // Refund will be processed by PaymentsService
-        // This ensures payment state machine is respected
-        await this.paymentsService.refund(id);
+        await this.walletService.refundToWallet(
+          booking.renterId,
+          id,
+          decision.refundAmount,
+          tx,
+        );
       }
 
       // Update booking status

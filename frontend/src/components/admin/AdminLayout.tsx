@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/lib/auth/AuthProvider';
 
-type AdminTab = 'dashboard' | 'users' | 'listings' | 'categories' | 'logs' | 'ledger' | 'payouts' | 'trust';
+type AdminTab = 'dashboard' | 'users' | 'listings' | 'categories' | 'logs' | 'ledger' | 'wallets' | 'payouts' | 'trust';
 
 export function AdminLayout({
   children,
@@ -109,6 +109,16 @@ export function AdminLayout({
                 }
               >
                 Ledger
+              </Link>
+              <Link
+                href="/admin/wallets"
+                className={
+                  activeTab === 'wallets'
+                    ? 'text-sm font-medium text-blue-600 border-b-2 border-blue-600 pb-1'
+                    : 'text-sm font-medium text-gray-600 hover:text-gray-900'
+                }
+              >
+                Wallets
               </Link>
               <Link
                 href="/admin/payouts"

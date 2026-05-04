@@ -21,6 +21,7 @@ import { MarkPaidDto } from '../payouts/dto/mark-paid.dto';
 import { ModerateListingDto, SuspendListingDto } from './dto/moderate-listing.dto';
 import { SuspendUserDto, UnsuspendUserDto } from './dto/moderate-user.dto';
 import { UpdateTrustTierDto, MarkTrustReviewedDto } from './dto/trust-actions.dto';
+import { WalletAdjustDto } from './dto/wallet-adjust.dto';
 import { ListingStatus } from '@prisma/client';
 
 @ApiTags('admin')
@@ -250,4 +251,29 @@ export class AdminController {
   ) {
     return this.adminService.updateTrustTier(id, dto.tier, req.user.sub, dto.reason);
   }
+
+  // ---- Wallet Oversight endpoints (Wallet Batch 3) ----
+
+  @Get('wallets')
+  @ApiOperation({ summary: 'List all user wallets with balances and summary stats' })
+  getAllWallets() {
+    return this.adminService.getAllWallets();
+  }
+
+  @Get('wallets/:userId')
+  @ApiOperation({ summary: 'Get wallet detail and transaction history for a user' })
+  getWalletDetail(@Param('userId', ParseUUIDPipe) userId: string) {
+    return this.adminService.getWalletDetail(userId);
+  }
+
+  @Post('wallets/:userId/adjust')
+  @ApiOperation({ summary: 'Admin wallet adjustment (credit or debit) with audit log' })
+  adjustWallet(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() dto: WalletAdjustDto,
+    @Request() req,
+  ) {
+    return this.adminService.adjustWallet(userId, dto.amount, dto.direction, dto.reason, req.user.sub);
+  }
 }
+

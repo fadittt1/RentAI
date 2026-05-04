@@ -17,4 +17,11 @@ export class PayBookingDto {
   @IsOptional()
   @IsString()
   receipt?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'If true, payment will be deducted from the user wallet',
+  })
+  @IsOptional()
+  useWallet?: boolean;
 }
