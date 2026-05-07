@@ -1,4 +1,5 @@
 import '@/styles/globals.css';
+import 'leaflet/dist/leaflet.css';
 import type { AppProps } from 'next/app';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
@@ -10,6 +11,7 @@ import { configureOpenApi } from '@/lib/api/openapi';
 import { isAdminUser, isHostUser } from '@/lib/auth/roleUtils';
 import { LoadingCard } from '@/components/ui/LoadingCard';
 import { EnvCheck } from '@/components/ui/EnvCheck';
+import { CompareProvider } from '@/lib/context/CompareContext';
 
 function RouteGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -83,7 +85,9 @@ export default function App({ Component, pageProps }: AppProps) {
       <EnvCheck />
       <AuthProvider>
         <RouteGuard>
-          <Component {...pageProps} />
+          <CompareProvider>
+            <Component {...pageProps} />
+          </CompareProvider>
         </RouteGuard>
         <Toaster />
       </AuthProvider>

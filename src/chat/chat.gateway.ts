@@ -15,7 +15,19 @@ import { SendMessageDto } from './dto/chat.dto';
 
 @WebSocketGateway({
   cors: {
-    origin: '*', // Configure this properly in production
+    origin: (
+      origin: string,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      const allowed = (process.env.CORS_ORIGINS ?? 'http://localhost:3001')
+        .split(',')
+        .map((o) => o.trim());
+      if (!origin || allowed.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`WebSocket CORS: origin '${origin}' not allowed`));
+      }
+    },
     credentials: true,
   },
   namespace: '/chat',
