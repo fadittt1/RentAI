@@ -213,7 +213,7 @@ export default function ClientDashboardPage() {
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="w-16 h-16 bg-purple-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition">
-                  <i className="fa-solid fa-gear text-white text-2xl" />
+                  <i className="fa-solid fa-star text-white text-2xl" />
                 </div>
                 <i className="fa-solid fa-arrow-right text-purple-500 text-xl group-hover:translate-x-1 transition" />
               </div>
@@ -223,6 +223,29 @@ export default function ClientDashboardPage() {
               </p>
               <div className="flex items-center space-x-2">
                 <span className="text-sm text-gray-600">Rating · Comments</span>
+              </div>
+            </Link>
+
+            <Link
+              href="/client/wallet"
+              id="nav-wallet"
+              className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-2xl p-8 border border-indigo-200 hover:shadow-lg transition cursor-pointer group"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="w-16 h-16 bg-indigo-500 rounded-2xl flex items-center justify-center group-hover:scale-110 transition">
+                  <i className="fa-solid fa-wallet text-white text-2xl" />
+                </div>
+                <i className="fa-solid fa-arrow-right text-indigo-500 text-xl group-hover:translate-x-1 transition" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">My Wallet</h3>
+              <p className="text-gray-600 mb-4">
+                Manage your balance for fast bookings
+              </p>
+              <div className="flex items-center space-x-2">
+                <span className="bg-indigo-500 text-white text-xs font-semibold px-3 py-1 rounded-full">
+                  Top up
+                </span>
+                <span className="text-sm text-gray-600">View history</span>
               </div>
             </Link>
           </div>

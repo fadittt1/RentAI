@@ -52,3 +52,4 @@ export { ListingsService } from './services/ListingsService';
 export { PaymentsService } from './services/PaymentsService';
 export { ReviewsService } from './services/ReviewsService';
 export { UsersService } from './services/UsersService';
+export { WalletService } from './services/WalletService';

@@ -11,5 +11,9 @@ export type PayBookingDto = {
      * Payment receipt URL or base64
      */
     receipt?: string;
+    /**
+     * If true, payment will be deducted from the user wallet
+     */
+    useWallet?: boolean;
 };
 

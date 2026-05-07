@@ -54,3 +54,17 @@ export type AiResponse = z.infer<typeof AiResponseSchema>;
 export type FollowUp = z.infer<typeof FollowUpSchema>;
 export type SearchFilters = z.infer<typeof SearchFiltersSchema>;
 export type SearchChip = z.infer<typeof SearchChipSchema>;
+
+export const PriceSuggestionResponseSchema = z.object({
+  recommended: z.number(),
+  rangeMin: z.number(),
+  rangeMax: z.number(),
+  confidence: z.enum(['high', 'medium', 'low']),
+  explanation: z.tuple([z.string(), z.string(), z.string()]),
+});
+
+export function parsePriceSuggestionResponse(text: string) {
+  // Extract JSON from markdown code blocks if present
+  const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
+  return PriceSuggestionResponseSchema.parse(JSON.parse(jsonStr));
+}

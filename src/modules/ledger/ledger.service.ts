@@ -347,6 +347,7 @@ export class LedgerService {
       hostNet: sumByType(LedgerEntryType.HOST_PAYOUT_DUE),
       totalPaid: sumByType(LedgerEntryType.HOST_PAYOUT),
       refunds: sumByType(LedgerEntryType.REFUND),
+      walletTopUps: sumByType(LedgerEntryType.WALLET_TOP_UP),
       refundCount: refundEntries.length,
       currency: 'TND',
       entryCount: entries.length,
