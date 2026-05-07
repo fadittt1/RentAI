@@ -96,9 +96,11 @@ docker compose up -d          # Starts postgres, backend, ml-service, adminer
 | `ML_SERVICE_URL` | No | `http://localhost:8000` | ML microservice URL |
 | `THROTTLE_TTL` | No | `60` | Rate limit window (seconds) |
 | `THROTTLE_LIMIT` | No | `10` | Rate limit max requests |
-| `OPENAI_API_KEY` | No | — | `<OPENAI_API_KEY>` (AI search falls back to keyword if missing) |
-| `AI_MODEL` | No | `gpt-4o-mini` | OpenAI model |
+| `OPENAI_API_KEY` | No | — | Groq/OpenAI API Key |
+| `OPENAI_BASE_URL` | No | — | `https://api.groq.com/openai/v1` for Groq migration |
+| `OPENAI_MODEL` | No | `llama-3.3-70b-versatile` | Groq model ID |
 | `AI_MAX_FOLLOWUPS` | No | `1` | Max AI follow-up questions |
+| `CHATBOT_MAX_TOOL_ROUNDS` | No | `5` | Orchestrator round limit |
 | `CLOUDINARY_CLOUD_NAME` | No | — | `<CLOUDINARY_CLOUD_NAME>` (not wired yet) |
 | `CLOUDINARY_API_KEY` | No | — | `<CLOUDINARY_API_KEY>` |
 | `CLOUDINARY_API_SECRET` | No | — | `<CLOUDINARY_API_SECRET>` |
@@ -190,7 +192,7 @@ LedgerEntry ── PayoutItem ── Payout
 | **Listings search (sort distance)** | ✅ | `ST_Distance` + `ORDER BY distance ASC` when `sortBy=distance` | `src/modules/listings/listings.service.ts` (L240–248) |
 | **Listings search (fallback)** | ✅ | If raw SQL fails, falls back to Prisma `findMany` without geo | `src/modules/listings/listings.service.ts` (L302–373) |
 | **Categories nearby** | ✅ | `GET /api/categories/nearby` with PostGIS. Verified with 11 E2E tests + proof artifacts. | `src/modules/categories/categories.service.ts` |
-| **Wallet Ledger v1** | ✅ | Atomic audit trail for all captures/refunds. Idempotent `postCapture/postRefund`. | `src/modules/ledger/` |
+| **Wallet Ledger v2** | ✅ | Atomic audit trail, idempotent captures/refunds, simulated top-up, frontend `/client/wallet` page, and wallet payment checkout integration. | `src/modules/ledger/`, `frontend/src/pages/client/wallet.tsx` |
 | **Payouts v1** | ✅ | Admin-only FIFO payout allocation, mark-paid flow, host balance tracking. | `src/modules/payouts/` |
 | **Dispute Freeze v1** | ✅ | `disputeStatus` (NONE/OPEN/RESOLVED). OPEN disputes block ledger entries from payouts. | `src/modules/payouts/payouts.service.ts` |
 | **Refund Guardrail v1** | ✅ | Hard block on refunds if a `HOST_PAYOUT` ledger entry already exists. | `src/modules/payments/payments.service.ts` |
@@ -198,20 +200,20 @@ LedgerEntry ── PayoutItem ── Payout
 | **Availability rules** | ✅ | DAILY: date ranges. SLOT: `SlotConfiguration` with operating hours. Blocking statuses (confirmed, paid, completed) prevent conflicts. | `src/modules/listings/listings.service.ts`, `src/common/utils/availability.service.ts` |
 | **Booking lifecycle + locking** | ✅ | pending → confirmed → paid → completed. Concurrency-safe listing mutex lock on `confirm`. Verified with parallel E2E races. | `src/modules/bookings/bookings.service.ts` |
 | **Booking reject** | ✅ | Host rejects pending → status `rejected`, slot freed | `src/modules/bookings/bookings.service.ts` (L300–337) |
-| **Payments + commission** | ⚠️ | Simulated gateway. Calculations use `COMMISSION_PERCENTAGE`. Ledger audit integrated. | `src/modules/payments/`, `src/modules/ledger/` |
-| **Refunds** | ⚠️ | Full ledger reversal, but payment gateway part is simulated. | `src/modules/payments/payments.controller.ts` |
+| **Payments + commission** | ⚠️ | Simulated gateway. Calculations use `COMMISSION_PERCENTAGE`. Ledger audit integrated. Wallet payment path built and integrated. | `src/modules/payments/`, `src/modules/ledger/` |
+| **Refunds** | ⚠️ | Full ledger reversal, wallet refund automation included. Payment gateway part simulated. | `src/modules/payments/payments.controller.ts` |
 | **Reviews** | ✅ | One review per booking (unique constraint). Post-booking only. | `src/modules/reviews/` |
 | **Admin pages** | ✅ | Dashboard, listing moderation, user management, audit logs, ledger summaries, payouts. | `frontend/src/pages/admin/` |
 | **Host pages** | ✅ | Dashboard, create listing, my listings, bookings | `frontend/src/pages/host/` |
-| **Client pages** | ✅ | Dashboard, bookings, reviews | `frontend/src/pages/client/` |
+| **Client pages** | ✅ | Dashboard, bookings, reviews, wallet (top-ups and transaction history) | `frontend/src/pages/client/` |
 | **Chat (realtime)** | ✅ | Socket.IO on `/chat` namespace. JWT auth. Send/read/typing/join. | `src/chat/` |
 | **AI Search** | ✅ | OpenAI-powered with Zod validation, fallback, max 1 follow-up | `src/modules/ai/` (see Section 6) |
-| **AI Assistant (Chatbot)** | ✅ | Orchestrated, multi-tool assistant with structured tool result rendering. | `src/chatbot/` |
+| **AI Assistant (Chatbot)** | ✅ | Orchestrated Groq-powered assistant with 5-round resilience and result de-duplication. | `src/chatbot/` |
 | **Assistant Modes** | ✅ | Discovery, Booking, Host, and General modes with deterministic pivoting. | `frontend/src/features/chatbot/utils/chatbot-assistant-modes.ts` |
 | **Branching Flows** | ✅ | State-aware guided branching (Search → Detail → Booking help/contact). | `frontend/src/features/chatbot/utils/chatbot-flow-branches.ts` |
 | **Flow Outcomes** | ✅ | Outcome detection (completed, interrupted, expired) with terminal UI cards. | `frontend/src/features/chatbot/utils/chatbot-flow-outcomes.ts` |
 | **Continuity/Resume** | ✅ | Session resume detecting pending confirmations or interrupted flows. | `frontend/src/features/chatbot/utils/chatbot-resume-utils.ts` |
-| **Comparison Layer** | ⚠️ | Comparison model and types defined; decision support logic pending UI. | `frontend/src/features/chatbot/types/chatbot-comparison.types.ts` |
+| **Comparison Layer** | ✅ | Simplified tool schema for Groq compatibility; decision support logic integrated. | `src/chatbot/tools/` |
 | **Chatbot Trust** | ✅ | Rate limiting, abuse incident recording, and tool governance (proposed vs confirmed). | `src/chatbot/trust/` |
 | **AI Listing Assistant** | ✅ | Generate/enhance descriptions, generate titles | `src/modules/ai/listing-assistant.service.ts` |
 | **ML Suggestions** | ⚠️ | Rule-based heuristics, not real ML. Category by keywords, price by location. | `ml-service/main.py` |
@@ -464,6 +466,7 @@ If the NestJS exception response is an object, `message` is extracted from `.mes
 9. **2026-02-27**: **DevOps/DB Maintenance**. Fixed migration sequence order by re-indexing timestamps.
 10. **2026-03-02**: **Availability & Conflict Hardening**. Ported DAILY/SLOT checks to use `BLOCKING_BOOKING_STATUSES` constant. Added listing-level MUTEX lock (`SELECT FOR UPDATE`) in `confirm` to prevent race conditions during acceptance.
 11. **2026-03-04**: **Demo Hardening & Offline Resilience**. Successfully eliminated NextJS broken image icons natively resolving to `/placeholder.png`. Cleansed stale `/api/api` OpenAPI SDK generator. Added 401 silent background refresh interceptor. Patched remaining database vulnerabilities (orphan queries, lingering fs logs).
+12. **2026-04-24**: **Chatbot v3 (Groq Migration)**. Migrated AI orchestration from local Ollama/OpenAI to **Groq** (`llama-3.3-70b-versatile`). Hardened tool schemas (removed `minItems`/`maxItems`, added mandatory `required: []`) for gateway compatibility. Increased orchestrator resilience to 5 rounds and added automatic search result de-duplication.
 ### Inferred recent work areas
 
 - **Financial Core**: Wallet Ledger, Payouts, and Refund Guardrails (Atomic transactions, idempotent ledger postings).

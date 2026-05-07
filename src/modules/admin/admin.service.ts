@@ -4,9 +4,11 @@ import { UsersService } from '../users/users.service';
 import { FlagListingDto } from './dto/flag-listing.dto';
 import { LedgerService } from '../ledger/ledger.service';
 import { PayoutsService } from '../payouts/payouts.service';
-import { PayoutStatus, ListingStatus } from '@prisma/client';
+import { WalletService } from '../wallet/wallet.service';
+import { PayoutStatus, ListingStatus, LedgerEntryType, LedgerDirection, LedgerStatus, WalletTransactionType } from '@prisma/client';
 import { ChatbotTrustScoreService } from '../../chatbot/trust/chatbot-trust-score.service';
 import { ChatbotRateLimitService } from '../../chatbot/trust/chatbot-rate-limit.service';
+import { AdjustmentDirection } from './dto/wallet-adjust.dto';
 
 @Injectable()
 export class AdminService {
@@ -15,6 +17,7 @@ export class AdminService {
     private usersService: UsersService,
     private ledgerService: LedgerService,
     private payoutsService: PayoutsService,
+    private walletService: WalletService,
     private trustScoreService: ChatbotTrustScoreService,
   ) {}
 
@@ -496,5 +499,222 @@ export class AdminService {
     });
 
     return { message: 'User trust tier updated', userId, tier: tier || 'AUTOMATIC' };
+  }
+
+  // ---- Wallet Oversight (Batch 3) ----
+
+  /**
+   * List all wallets with user info and aggregate stats.
+   * Returns wallets sorted by balance descending.
+   */
+  async getAllWallets() {
+    const wallets = await this.prisma.wallet.findMany({
+      include: {
+        user: {
+          select: { id: true, name: true, email: true, roles: true, suspendedAt: true },
+        },
+        _count: { select: { transactions: true } },
+      },
+      orderBy: { balance: 'desc' },
+    });
+
+    // Aggregate stats
+    let totalBalance = 0;
+    let totalTopUps = 0;
+    let totalPayments = 0;
+    let totalRefunds = 0;
+    let walletCount = wallets.length;
+
+    for (const w of wallets) {
+      totalBalance += parseFloat(w.balance.toString());
+    }
+
+    // Get aggregate transaction counts by type
+    const txCounts = await this.prisma.walletTransaction.groupBy({
+      by: ['type'],
+      _count: true,
+      _sum: { amount: true },
+    });
+
+    for (const tc of txCounts) {
+      const sum = parseFloat(tc._sum?.amount?.toString() ?? '0');
+      if (tc.type === 'TOP_UP') totalTopUps = sum;
+      if (tc.type === 'PAYMENT') totalPayments = sum;
+      if (tc.type === 'REFUND') totalRefunds = sum;
+    }
+
+    return {
+      wallets: wallets.map((w) => ({
+        userId: w.userId,
+        balance: parseFloat(w.balance.toString()),
+        currency: w.currency,
+        transactionCount: w._count.transactions,
+        createdAt: w.createdAt,
+        updatedAt: w.updatedAt,
+        user: w.user,
+      })),
+      summary: {
+        walletCount,
+        totalBalance: +totalBalance.toFixed(2),
+        totalTopUps: +totalTopUps.toFixed(2),
+        totalPayments: +totalPayments.toFixed(2),
+        totalRefunds: +totalRefunds.toFixed(2),
+        currency: 'TND',
+      },
+    };
+  }
+
+  /**
+   * Get a single user's wallet with full transaction history.
+   */
+  async getWalletDetail(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true, roles: true, suspendedAt: true, createdAt: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { userId },
+      include: {
+        transactions: {
+          orderBy: { createdAt: 'desc' },
+          take: 100,
+          include: {
+            ledgerEntry: {
+              select: { id: true, type: true, direction: true, status: true, metadata: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!wallet) {
+      return {
+        user,
+        wallet: null,
+        balance: 0,
+        currency: 'TND',
+        transactions: [],
+      };
+    }
+
+    return {
+      user,
+      wallet: {
+        id: wallet.id,
+        balance: parseFloat(wallet.balance.toString()),
+        currency: wallet.currency,
+        createdAt: wallet.createdAt,
+        updatedAt: wallet.updatedAt,
+      },
+      transactions: wallet.transactions.map((t) => ({
+        id: t.id,
+        type: t.type,
+        amount: parseFloat(t.amount.toString()),
+        balanceBefore: parseFloat(t.balanceBefore.toString()),
+        balanceAfter: parseFloat(t.balanceAfter.toString()),
+        referenceId: t.referenceId,
+        ledgerEntryId: t.ledgerEntryId,
+        ledgerEntry: t.ledgerEntry,
+        createdAt: t.createdAt,
+      })),
+    };
+  }
+
+  /**
+   * Admin wallet adjustment: credit or debit with mandatory reason.
+   * Creates a WalletTransaction (ADJUSTMENT), a LedgerEntry, and an AdminLog.
+   */
+  async adjustWallet(
+    userId: string,
+    amount: number,
+    direction: AdjustmentDirection,
+    reason: string,
+    adminId: string,
+  ) {
+    if (amount <= 0) {
+      throw new BadRequestException('Adjustment amount must be positive');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    return await this.prisma.$transaction(async (tx) => {
+      let wallet = await tx.wallet.findUnique({ where: { userId } });
+      if (!wallet) {
+        wallet = await tx.wallet.create({ data: { userId, balance: 0 } });
+      }
+
+      const balanceBefore = parseFloat(wallet.balance.toString());
+
+      if (direction === AdjustmentDirection.DEBIT && balanceBefore < amount) {
+        throw new BadRequestException(
+          `Insufficient balance for debit adjustment. Current: ${balanceBefore.toFixed(2)}, requested: ${amount.toFixed(2)}`,
+        );
+      }
+
+      const updatedWallet = await tx.wallet.update({
+        where: { id: wallet.id },
+        data: {
+          balance:
+            direction === AdjustmentDirection.CREDIT
+              ? { increment: amount }
+              : { decrement: amount },
+        },
+      });
+
+      const balanceAfter = parseFloat(updatedWallet.balance.toString());
+
+      // Create ledger entry for the adjustment
+      const ledgerEntry = await tx.ledgerEntry.create({
+        data: {
+          actorId: adminId,
+          type: LedgerEntryType.WALLET_TOP_UP, // Reuse existing type; metadata distinguishes admin adjustments
+          direction: direction === AdjustmentDirection.CREDIT ? LedgerDirection.CREDIT : LedgerDirection.DEBIT,
+          amount,
+          status: LedgerStatus.POSTED,
+          metadata: {
+            reason,
+            adjustmentType: 'admin_adjustment',
+            targetUserId: userId,
+            direction,
+          },
+        },
+      });
+
+      // Create wallet transaction
+      await tx.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          amount,
+          balanceBefore,
+          balanceAfter,
+          type: WalletTransactionType.ADJUSTMENT,
+          ledgerEntryId: ledgerEntry.id,
+        },
+      });
+
+      // Audit log
+      await this.logAction(adminId, 'wallet_adjustment', {
+        userId,
+        direction,
+        amount,
+        balanceBefore,
+        balanceAfter,
+        reason,
+        ledgerEntryId: ledgerEntry.id,
+      });
+
+      return {
+        message: `Wallet ${direction.toLowerCase()} applied`,
+        userId,
+        direction,
+        amount,
+        balanceBefore,
+        balanceAfter,
+        currency: updatedWallet.currency,
+      };
+    });
   }
 }

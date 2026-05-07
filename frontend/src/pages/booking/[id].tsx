@@ -10,6 +10,7 @@ import { InlineError } from '@/components/ui/InlineError';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingCard } from '@/components/ui/LoadingCard';
 import { api } from '@/lib/api/http';
+import { useWallet } from '@/lib/api/hooks/useWallet';
 
 export default function BookingPage() {
   const router = useRouter();
@@ -23,6 +24,7 @@ export default function BookingPage() {
   const [paid, setPaid] = useState(false);
   const createBooking = useCreateBooking();
   const listingQuery = useListing(listingId);
+  const { data: wallet } = useWallet();
   const listing = listingQuery.data as any;
 
   const handleCreateBooking = async () => {
@@ -44,19 +46,27 @@ export default function BookingPage() {
   const handlePayment = async () => {
     if (!createBooking.data) return;
     try {
-      // First authorize payment intent
-      await api.post(`/payments/booking/${createBooking.data.id}/authorize`, {
-        metadata: { paymentToken: 'demo-token' },
-      });
+      if (paymentMethod === 'wallet') {
+        // Pay directly from wallet, skipping manual authorization step
+        await BookingsService.bookingsControllerPay(createBooking.data.id, {
+          useWallet: true,
+        });
+      } else {
+        // First authorize payment intent
+        await api.post(`/payments/booking/${createBooking.data.id}/authorize`, {
+          metadata: { paymentToken: 'demo-token' },
+        });
 
-      // Then pay the booking (which will capture the payment intent)
-      await BookingsService.bookingsControllerPay(createBooking.data.id, {
-        paymentToken: 'demo-token',
-        receipt: 'demo-receipt',
-      });
+        // Then pay the booking (which will capture the payment intent)
+        await BookingsService.bookingsControllerPay(createBooking.data.id, {
+          paymentToken: 'demo-token',
+          receipt: 'demo-receipt',
+        });
+      }
       setPaid(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Payment failed:', error);
+      alert(error?.body?.message || 'Payment failed');
     }
   };
 
@@ -295,6 +305,43 @@ export default function BookingPage() {
               </h2>
               <div className="space-y-3">
                 <button
+                  onClick={() => setPaymentMethod('wallet')}
+                  className={`w-full rounded-lg border p-4 transition ${
+                    paymentMethod === 'wallet'
+                      ? 'border-indigo-500 bg-indigo-50'
+                      : 'border-gray-300 hover:border-indigo-500'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center w-full">
+                      <i className="fa-solid fa-wallet mr-3 text-xl text-indigo-500"></i>
+                      <div className="flex-1 text-left">
+                        <div className="font-medium text-gray-900">
+                          RentEverything Wallet
+                        </div>
+                        <div className="text-sm text-gray-500 flex justify-between">
+                          <span>Pay with your account balance</span>
+                          <span className={wallet?.balance < total ? 'text-red-500 font-medium' : 'text-green-600 font-medium'}>
+                            Balance: {formatTnd(wallet?.balance || 0)}
+                          </span>
+                        </div>
+                        {wallet?.balance < total && (
+                          <div className="text-xs text-red-500 mt-1">
+                            Insufficient balance for this booking. <Link href="/client/wallet" className="underline">Top up</Link>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <i
+                      className={`fa-solid ml-4 ${
+                        paymentMethod === 'wallet'
+                          ? 'fa-circle-check text-indigo-500'
+                          : 'fa-circle text-gray-300'
+                      }`}
+                    ></i>
+                  </div>
+                </button>
+                <button
                   onClick={() => setPaymentMethod('card')}
                   className={`w-full rounded-lg border p-4 transition ${
                     paymentMethod === 'card'
@@ -442,7 +489,10 @@ export default function BookingPage() {
               {createBooking.data && !paid ? (
                 <button
                   onClick={handlePayment}
-                  disabled={createBooking.isPending}
+                  disabled={
+                    createBooking.isPending ||
+                    (paymentMethod === 'wallet' && (wallet?.balance || 0) < total)
+                  }
                   className="rounded-lg bg-blue-500 px-8 py-4 font-semibold text-white shadow-md transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Complete Payment

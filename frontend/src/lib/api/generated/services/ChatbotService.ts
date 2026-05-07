@@ -18,7 +18,7 @@ export class ChatbotService {
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/chatbot/messages',
+            url: '/api/chatbot/messages',
             body: requestBody,
             mediaType: 'application/json',
         });
@@ -31,7 +31,7 @@ export class ChatbotService {
     public static chatbotControllerGetConversations(): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/chatbot/conversations',
+            url: '/api/chatbot/conversations',
         });
     }
     /**
@@ -45,7 +45,7 @@ export class ChatbotService {
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/chatbot/conversations/{id}/messages',
+            url: '/api/chatbot/conversations/{id}/messages',
             path: {
                 'id': id,
             },
@@ -59,7 +59,7 @@ export class ChatbotService {
     public static chatbotControllerConfirmAction(): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/chatbot/actions/confirm',
+            url: '/api/chatbot/actions/confirm',
         });
     }
 }

@@ -1,6 +1,7 @@
-export function formatTnd(amount: number) {
-  // Keep it simple/deterministic: "123.45 TND"
-  const value = Number.isFinite(amount) ? amount : 0;
+export function formatTnd(amount: number | string | any) {
+  // Handle string numbers from Decimal types
+  const parsed = typeof amount === 'number' ? amount : parseFloat(String(amount));
+  const value = isFinite(parsed) ? parsed : 0;
   return `${value.toFixed(2)} TND`;
 }
 

@@ -14,23 +14,23 @@ datasource db {
 // User Model
 // ===========================
 model User {
-  id            String   @id @default(uuid())
-  name          String   @db.VarChar(255)
-  email         String?  @unique @db.VarChar(255)
-  phone         String?  @unique @db.VarChar(20)
-  passwordHash  String   @map("password_hash") @db.VarChar(255)
-  avatarUrl     String?  @db.VarChar(500)
-  roles         String[] @default(["user"])
-  isHost        Boolean  @default(false)
-  verifiedEmail Boolean  @default(false)
-  verifiedPhone Boolean  @default(false)
-  ratingAvg     Decimal  @default(0) @db.Decimal(3, 2)
-  ratingCount   Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  suspendedAt   DateTime? @map("suspended_at")
+  id              String    @id @default(uuid())
+  name            String    @db.VarChar(255)
+  email           String?   @unique @db.VarChar(255)
+  phone           String?   @unique @db.VarChar(20)
+  passwordHash    String    @map("password_hash") @db.VarChar(255)
+  avatarUrl       String?   @db.VarChar(500)
+  roles           String[]  @default(["user"])
+  isHost          Boolean   @default(false)
+  verifiedEmail   Boolean   @default(false)
+  verifiedPhone   Boolean   @default(false)
+  ratingAvg       Decimal   @default(0) @db.Decimal(3, 2)
+  ratingCount     Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  suspendedAt     DateTime? @map("suspended_at")
   trustReviewedAt DateTime? @map("trust_reviewed_at")
-  manualTrustTier String? @map("manual_trust_tier") @db.VarChar(50)
+  manualTrustTier String?   @map("manual_trust_tier") @db.VarChar(50)
 
   // Relations
   listings               Listing[]
@@ -43,14 +43,15 @@ model User {
   paymentIntentsAsHost   PaymentIntent[] @relation("HostPayments")
 
   // Chat relations
-  renterConversations Conversation[] @relation("RenterConversations")
-  hostConversations   Conversation[] @relation("HostConversations")
-  sentMessages        Message[]
-  chatbotConversations ChatConversation[] @relation("UserChatbotConversations")
+  renterConversations        Conversation[]              @relation("RenterConversations")
+  hostConversations          Conversation[]              @relation("HostConversations")
+  sentMessages               Message[]
+  chatbotConversations       ChatConversation[]          @relation("UserChatbotConversations")
   chatbotActionConfirmations ChatbotActionConfirmation[] @relation("UserActionConfirmations")
-  chatbotSecurityEvents ChatbotSecurityEvent[] @relation("UserChatbotSecurityEvents")
-  payoutsAsHost       Payout[]       @relation("HostPayouts")
-  categoryRequests    CategoryRequest[] @relation("RequesterCategoryRequests")
+  chatbotSecurityEvents      ChatbotSecurityEvent[]      @relation("UserChatbotSecurityEvents")
+  payoutsAsHost              Payout[]                    @relation("HostPayouts")
+  categoryRequests           CategoryRequest[]           @relation("RequesterCategoryRequests")
+  wallet                     Wallet?
 
   @@index([email])
   @@index([phone])
@@ -68,17 +69,17 @@ enum CategoryRequestStatus {
 }
 
 model CategoryRequest {
-  id              String   @id @default(uuid())
-  requesterId     String   @map("requester_id")
-  proposedName    String   @map("proposed_name") @db.VarChar(255)
-  reason          String?  @db.Text
-  status          CategoryRequestStatus @default(PENDING)
-  adminNotes      String?  @map("admin_notes") @db.Text
-  resolvedCategoryId String? @map("resolved_category_id")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                 String                @id @default(uuid())
+  requesterId        String                @map("requester_id")
+  proposedName       String                @map("proposed_name") @db.VarChar(255)
+  reason             String?               @db.Text
+  status             CategoryRequestStatus @default(PENDING)
+  adminNotes         String?               @map("admin_notes") @db.Text
+  resolvedCategoryId String?               @map("resolved_category_id")
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 
-  requester       User     @relation("RequesterCategoryRequests", fields: [requesterId], references: [id])
+  requester        User      @relation("RequesterCategoryRequests", fields: [requesterId], references: [id])
   resolvedCategory Category? @relation("ResolvedCategory", fields: [resolvedCategoryId], references: [id])
 
   @@map("category_requests")
@@ -97,7 +98,7 @@ model Category {
   createdAt         DateTime @default(now())
 
   // Relations
-  listings Listing[]
+  listings         Listing[]
   categoryRequests CategoryRequest[] @relation("ResolvedCategory")
 
   @@index([slug], name: "idx_category_slug")
@@ -135,6 +136,10 @@ model Listing {
   isActive     Boolean                              @default(true)
   status       ListingStatus                        @default(PENDING_REVIEW)
   bookingType  BookingType                          @default(DAILY)
+  nearBeach      Boolean?                           @map("near_beach")
+  propertyType   String?                            @map("property_type") @db.VarChar(50)
+  guestsCapacity Int?                               @map("guests_capacity")
+  bedrooms       Int?                               @map("bedrooms")
   deletedAt    DateTime?
   createdAt    DateTime                             @default(now())
   updatedAt    DateTime                             @updatedAt
@@ -194,10 +199,10 @@ model Booking {
   updatedAt   DateTime      @updatedAt
 
   // Immutable snapshot: captured at booking creation, never updated
-  snapshotTitle          String?       @db.VarChar(255)
-  snapshotPricePerDay    Decimal?      @db.Decimal(10, 2)
-  snapshotCommissionRate Decimal?      @db.Decimal(5, 4)
-  snapshotCurrency       String?       @default("TND") @db.VarChar(3)
+  snapshotTitle          String?  @db.VarChar(255)
+  snapshotPricePerDay    Decimal? @db.Decimal(10, 2)
+  snapshotCommissionRate Decimal? @db.Decimal(5, 4)
+  snapshotCurrency       String?  @default("TND") @db.VarChar(3)
 
   // Dispute
   disputeStatus DisputeStatus @default(NONE)
@@ -382,17 +387,17 @@ model SlotConfiguration {
 // AI Search Log
 // ===========================
 model AiSearchLog {
-  id           String   @id @default(uuid())
-  createdAt    DateTime @default(now())
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
 
-  query        String
-  lat          Float?
-  lng          Float?
-  radiusKm     Float?
+  query         String
+  lat           Float?
+  lng           Float?
+  radiusKm      Float?
   followUpAsked Boolean @default(false)
-  mode         String   // 'FOLLOW_UP' | 'RESULT'
-  filters      Json     @db.JsonB
-  resultsCount Int      @default(0)
+  mode          String // 'FOLLOW_UP' | 'RESULT'
+  filters       Json    @db.JsonB
+  resultsCount  Int     @default(0)
 
   @@index([createdAt])
   @@map("ai_search_logs")
@@ -408,6 +413,7 @@ enum LedgerEntryType {
   REFUND
   ADJUSTMENT
   HOST_PAYOUT
+  WALLET_TOP_UP
 }
 
 enum LedgerDirection {
@@ -422,7 +428,7 @@ enum LedgerStatus {
 
 model LedgerEntry {
   id              String          @id @default(uuid())
-  bookingId       String
+  bookingId       String?
   paymentIntentId String?
   actorId         String?
   type            LedgerEntryType
@@ -435,11 +441,12 @@ model LedgerEntry {
   createdAt       DateTime        @default(now())
 
   // Relations
-  booking          Booking        @relation(fields: [bookingId], references: [id])
-  paymentIntent    PaymentIntent? @relation(fields: [paymentIntentId], references: [id])
-  reversedEntry    LedgerEntry?   @relation("Reversal", fields: [reversedEntryId], references: [id])
-  reversedBy       LedgerEntry?   @relation("Reversal")
-  payoutItem       PayoutItem?
+  booking           Booking?           @relation(fields: [bookingId], references: [id])
+  paymentIntent     PaymentIntent?     @relation(fields: [paymentIntentId], references: [id])
+  reversedEntry     LedgerEntry?       @relation("Reversal", fields: [reversedEntryId], references: [id])
+  reversedBy        LedgerEntry?       @relation("Reversal")
+  payoutItem        PayoutItem?
+  walletTransaction WalletTransaction?
 
   @@index([bookingId])
   @@index([paymentIntentId])
@@ -468,10 +475,10 @@ model Payout {
   notes     String?      @db.Text
   createdAt DateTime     @default(now())
   paidAt    DateTime?
-  adminId   String?      // who created/approved
+  adminId   String? // who created/approved
 
-  host        User         @relation("HostPayouts", fields: [hostId], references: [id])
-  items       PayoutItem[]
+  host  User         @relation("HostPayouts", fields: [hostId], references: [id])
+  items PayoutItem[]
 
   @@index([hostId])
   @@index([status])
@@ -480,13 +487,13 @@ model Payout {
 }
 
 model PayoutItem {
-  id             String   @id @default(uuid())
-  payoutId       String
-  ledgerEntryId  String   @unique
-  createdAt      DateTime @default(now())
+  id            String   @id @default(uuid())
+  payoutId      String
+  ledgerEntryId String   @unique
+  createdAt     DateTime @default(now())
 
-  payout       Payout      @relation(fields: [payoutId], references: [id])
-  ledgerEntry  LedgerEntry @relation(fields: [ledgerEntryId], references: [id])
+  payout      Payout      @relation(fields: [payoutId], references: [id])
+  ledgerEntry LedgerEntry @relation(fields: [ledgerEntryId], references: [id])
 
   @@index([payoutId])
   @@map("payout_items")
@@ -502,11 +509,11 @@ model ChatConversation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user      User     @relation("UserChatbotConversations", fields: [userId], references: [id])
-  messages  ChatMessage[]
-  summary   ChatConversationSummary?
+  user                User                        @relation("UserChatbotConversations", fields: [userId], references: [id])
+  messages            ChatMessage[]
+  summary             ChatConversationSummary?
   actionConfirmations ChatbotActionConfirmation[]
-  securityEvents ChatbotSecurityEvent[]
+  securityEvents      ChatbotSecurityEvent[]
 
   @@index([userId])
   @@map("chat_conversations")
@@ -520,7 +527,7 @@ model ChatConversationSummary {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  conversation         ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@map("chat_conversation_summaries")
 }
@@ -534,7 +541,7 @@ model ChatMessage {
   toolPayload    Json?    @db.JsonB
   createdAt      DateTime @default(now())
 
-  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
   @@index([createdAt])
@@ -545,22 +552,22 @@ model ChatMessage {
 // Chatbot Mutation Flow
 // ===========================
 model ChatbotActionConfirmation {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   userId         String
   conversationId String
-  actionName     String   @db.VarChar(255)
-  resourceType   String?  @db.VarChar(255)
-  resourceId     String?  @db.VarChar(255)
-  payload        Json?    @db.JsonB
-  payloadHash    String   @db.VarChar(255)
-  token          String   @unique @db.VarChar(255)
-  status         String   @default("pending") @db.VarChar(50) // pending | confirmed | expired | consumed | cancelled
-  createdAt      DateTime @default(now())
+  actionName     String    @db.VarChar(255)
+  resourceType   String?   @db.VarChar(255)
+  resourceId     String?   @db.VarChar(255)
+  payload        Json?     @db.JsonB
+  payloadHash    String    @db.VarChar(255)
+  token          String    @unique @db.VarChar(255)
+  status         String    @default("pending") @db.VarChar(50) // pending | confirmed | expired | consumed | cancelled
+  createdAt      DateTime  @default(now())
   expiresAt      DateTime
   consumedAt     DateTime?
 
-  user           User             @relation("UserActionConfirmations", fields: [userId], references: [id])
-  conversation   ChatConversation @relation(fields: [conversationId], references: [id])
+  user         User             @relation("UserActionConfirmations", fields: [userId], references: [id])
+  conversation ChatConversation @relation(fields: [conversationId], references: [id])
 
   @@index([token])
   @@index([userId, conversationId])
@@ -575,15 +582,58 @@ model ChatbotSecurityEvent {
   userId         String
   conversationId String?
   eventType      String   @db.VarChar(100) // e.g. 'rate_limit_exceeded', 'suspicious_payload', 'confirmation_replay'
-  severity       String   @db.VarChar(50)  // 'low', 'medium', 'high', 'critical'
+  severity       String   @db.VarChar(50) // 'low', 'medium', 'high', 'critical'
   reasonCode     String   @db.VarChar(255)
   metadata       Json?    @db.JsonB
   createdAt      DateTime @default(now())
 
-  user           User              @relation("UserChatbotSecurityEvents", fields: [userId], references: [id])
-  conversation   ChatConversation? @relation(fields: [conversationId], references: [id])
+  user         User              @relation("UserChatbotSecurityEvents", fields: [userId], references: [id])
+  conversation ChatConversation? @relation(fields: [conversationId], references: [id])
 
   @@index([userId])
   @@index([createdAt])
   @@map("chatbot_security_events")
+}
+
+// ===========================
+// Wallet Models
+// ===========================
+enum WalletTransactionType {
+  TOP_UP
+  PAYMENT
+  REFUND
+  ADJUSTMENT
+}
+
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  balance   Decimal  @default(0.00) @db.Decimal(10, 2)
+  currency  String   @default("TND") @db.VarChar(3)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User                @relation(fields: [userId], references: [id])
+  transactions WalletTransaction[]
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id            String                @id @default(uuid())
+  walletId      String
+  amount        Decimal               @db.Decimal(10, 2)
+  balanceBefore Decimal               @db.Decimal(10, 2)
+  balanceAfter  Decimal               @db.Decimal(10, 2)
+  type          WalletTransactionType
+  referenceId   String?               @db.VarChar(255)
+  ledgerEntryId String?               @unique
+  createdAt     DateTime              @default(now())
+
+  wallet      Wallet       @relation(fields: [walletId], references: [id])
+  ledgerEntry LedgerEntry? @relation(fields: [ledgerEntryId], references: [id])
+
+  @@index([walletId])
+  @@index([createdAt])
+  @@map("wallet_transactions")
 }
