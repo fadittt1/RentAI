@@ -4,11 +4,24 @@ import { useRouter } from 'next/router';
 import { useState } from 'react';
 import { useDebounce } from '@/lib/utils/useDebounce';
 import { useListings } from '@/lib/api/hooks/useListings';
+import { useCategoriesNearby } from '@/lib/api/hooks/useCategoriesNearby';
 import { ListingCard } from '@/components/shared/ListingCard';
 import { LoadingCard } from '@/components/ui/LoadingCard';
 import { InlineError } from '@/components/ui/InlineError';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatTnd } from '@/lib/utils/format';
+import ListingMap from '@/components/shared/ListingMap';
+
+const CATEGORY_META: Record<string, { icon: string; colorBg: string; colorIcon: string; colorHover: string; subtitle: string }> = {
+  'stays':             { icon: 'fa-house',   colorBg: 'bg-blue-100',   colorIcon: 'text-blue-500',   colorHover: 'group-hover:bg-blue-500',   subtitle: 'Houses & Villas' },
+  'sports-facilities': { icon: 'fa-futbol',  colorBg: 'bg-purple-100', colorIcon: 'text-purple-500', colorHover: 'group-hover:bg-purple-500', subtitle: 'Football, Volleyball & Padel' },
+  'mobility':          { icon: 'fa-car',     colorBg: 'bg-green-100',  colorIcon: 'text-green-500',  colorHover: 'group-hover:bg-green-500',  subtitle: 'Vehicles & Scooters' },
+  'beach-gear':        { icon: 'fa-water',   colorBg: 'bg-orange-100', colorIcon: 'text-orange-500', colorHover: 'group-hover:bg-orange-500', subtitle: 'Paddle, Kayak & More' },
+};
+
+const DEFAULT_LAT = 36.8578;
+const DEFAULT_LNG = 11.092;
+const DEFAULT_RADIUS = 10;
 
 export default function HomePage() {
   const router = useRouter();
@@ -16,6 +29,13 @@ export default function HomePage() {
   const [q, setQ] = useState('');
   const [where, setWhere] = useState('Tunis, Tunisia');
   const dq = useDebounce(q, 350);
+
+  const { data: nearbyCategories, isLoading: catsLoading } = useCategoriesNearby({
+    lat: DEFAULT_LAT,
+    lng: DEFAULT_LNG,
+    radiusKm: DEFAULT_RADIUS,
+  });
+
   const { data, isLoading, isError } = useListings({
     q: dq || undefined,
     lat: 36.8578,
@@ -113,7 +133,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Categories Section - Only show 4 allowed categories */}
+      {/* Categories Section — dynamic from /api/categories/nearby */}
       <section id="categories" className="bg-gray-50 py-8">
         <div className="mx-auto max-w-7xl px-6">
           <h2 className="mb-6 text-2xl font-bold text-gray-900">
@@ -121,57 +141,52 @@ export default function HomePage() {
           </h2>
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Link
-              href="/search?categorySlug=stays"
-              className="group cursor-pointer rounded-xl border border-gray-200 bg-white p-6 transition hover:shadow-lg"
-            >
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 transition group-hover:bg-blue-500">
-                <i className="fa-solid fa-house text-xl text-blue-500 transition group-hover:text-white"></i>
-              </div>
-              <h3 className="text-sm font-semibold text-gray-900">
-                Stays
-              </h3>
-              <p className="mt-1 text-xs text-gray-500">Houses & Villas</p>
-            </Link>
-
-            <Link
-              href="/search?categorySlug=sports-facilities"
-              className="group cursor-pointer rounded-xl border border-gray-200 bg-white p-6 transition hover:shadow-lg"
-            >
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-purple-100 transition group-hover:bg-purple-500">
-                <i className="fa-solid fa-futbol text-xl text-purple-500 transition group-hover:text-white"></i>
-              </div>
-              <h3 className="text-sm font-semibold text-gray-900">
-                Sports Facilities
-              </h3>
-              <p className="mt-1 text-xs text-gray-500">Football, Volleyball & Paddel</p>
-            </Link>
-
-            <Link
-              href="/search?categorySlug=mobility"
-              className="group cursor-pointer rounded-xl border border-gray-200 bg-white p-6 transition hover:shadow-lg"
-            >
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-100 transition group-hover:bg-green-500">
-                <i className="fa-solid fa-car text-xl text-green-500 transition group-hover:text-white"></i>
-              </div>
-              <h3 className="text-sm font-semibold text-gray-900">Mobility</h3>
-              <p className="mt-1 text-xs text-gray-500">Vehicles & Scooters</p>
-            </Link>
-
-            <Link
-              href="/search?categorySlug=beach-gear"
-              className="group cursor-pointer rounded-xl border border-gray-200 bg-white p-6 transition hover:shadow-lg"
-            >
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-orange-100 transition group-hover:bg-orange-500">
-                <i className="fa-solid fa-water text-xl text-orange-500 transition group-hover:text-white"></i>
-              </div>
-              <h3 className="text-sm font-semibold text-gray-900">
-                Beach Gear
-              </h3>
-              <p className="mt-1 text-xs text-gray-500">
-                Paddle, Kayak & More
-              </p>
-            </Link>
+            {catsLoading
+              ? Array.from({ length: 4 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="animate-pulse rounded-xl border border-gray-200 bg-white p-6"
+                  >
+                    <div className="mb-4 h-12 w-12 rounded-full bg-gray-200" />
+                    <div className="mb-2 h-4 w-24 rounded bg-gray-200" />
+                    <div className="h-3 w-32 rounded bg-gray-100" />
+                  </div>
+                ))
+              : (nearbyCategories ?? []).map((cat) => {
+                  const meta = CATEGORY_META[cat.slug] ?? {
+                    icon: 'fa-tag',
+                    colorBg: 'bg-gray-100',
+                    colorIcon: 'text-gray-500',
+                    colorHover: 'group-hover:bg-gray-500',
+                    subtitle: cat.name,
+                  };
+                  return (
+                    <Link
+                      key={cat.id}
+                      href={`/search?categorySlug=${cat.slug}`}
+                      className="group cursor-pointer rounded-xl border border-gray-200 bg-white p-6 transition hover:shadow-lg"
+                    >
+                      <div
+                        className={`mb-4 flex h-12 w-12 items-center justify-center rounded-full ${meta.colorBg} transition ${meta.colorHover}`}
+                      >
+                        <i
+                          className={`fa-solid ${meta.icon} text-xl ${meta.colorIcon} transition group-hover:text-white`}
+                        ></i>
+                      </div>
+                      <h3 className="text-sm font-semibold text-gray-900">
+                        {cat.name}
+                      </h3>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {meta.subtitle}
+                      </p>
+                      {cat.count > 0 && (
+                        <p className="mt-2 text-xs font-medium text-blue-500">
+                          {cat.count} available
+                        </p>
+                      )}
+                    </Link>
+                  );
+                })}
           </div>
         </div>
       </section>
@@ -193,52 +208,15 @@ export default function HomePage() {
           </div>
 
           <div
-            className="relative overflow-hidden rounded-2xl border border-gray-200 shadow-lg"
+            className="overflow-hidden rounded-2xl border border-gray-200 shadow-lg"
             style={{ height: '400px' }}
           >
-            <img
-              className="h-full w-full object-cover"
-              src="https://storage.googleapis.com/uxpilot-auth.appspot.com/e61652dc21-cab20e8e19405eef87bb.png"
-              alt="interactive map view of Tunis city with location pins showing rental items"
+            <ListingMap
+              listings={data?.items ?? []}
+              center={[DEFAULT_LAT, DEFAULT_LNG]}
+              zoom={12}
+              height="400px"
             />
-
-            <div className="absolute top-4 left-4 flex items-center space-x-2 rounded-full bg-white px-4 py-2 shadow-md">
-              <i className="fa-solid fa-filter text-gray-600"></i>
-              <span className="text-sm font-medium">Filters</span>
-            </div>
-
-            <div className="absolute top-4 right-4 flex flex-col space-y-2">
-              <button className="rounded-lg bg-white p-3 shadow-md transition hover:bg-gray-50">
-                <i className="fa-solid fa-plus text-gray-700"></i>
-              </button>
-              <button className="rounded-lg bg-white p-3 shadow-md transition hover:bg-gray-50">
-                <i className="fa-solid fa-minus text-gray-700"></i>
-              </button>
-              <button className="rounded-lg bg-white p-3 shadow-md transition hover:bg-gray-50">
-                <i className="fa-solid fa-location-crosshairs text-gray-700"></i>
-              </button>
-            </div>
-
-            {/* Sample map pins */}
-            {data?.items?.slice(0, 5).map((listing, idx) => {
-              const positions = [
-                { top: '24%', left: '32%' },
-                { top: '48%', left: '64%' },
-                { top: '32%', right: '48%' },
-                { bottom: '32%', left: '48%' },
-                { bottom: '24%', right: '32%' },
-              ];
-              const pos = positions[idx % positions.length];
-              return (
-                <div
-                  key={listing.id}
-                  className="absolute cursor-pointer rounded-full bg-blue-500 px-3 py-1 text-sm font-medium text-white shadow-lg transition hover:bg-blue-600"
-                  style={pos}
-                >
-                  {formatTnd(listing.pricePerDay)}/day
-                </div>
-              );
-            })}
           </div>
         </div>
       </section>

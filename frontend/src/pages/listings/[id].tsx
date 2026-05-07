@@ -7,7 +7,23 @@ import { formatTnd } from '@/lib/utils/format';
 import { LoadingCard } from '@/components/ui/LoadingCard';
 import { InlineError } from '@/components/ui/InlineError';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+
+// ── calendar helpers ──────────────────────────────────────────────────────────
+function toYMD(d: Date) {
+  return d.toISOString().split('T')[0];
+}
+function daysInMonth(year: number, month: number) {
+  return new Date(year, month + 1, 0).getDate();
+}
+function firstDayOfMonth(year: number, month: number) {
+  // 0=Sun…6=Sat; convert so Mon=0
+  return (new Date(year, month, 1).getDay() + 6) % 7;
+}
+function daysBetween(a: string, b: string) {
+  if (!a || !b) return 0;
+  return Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000));
+}
 
 export default function ListingDetailsPage() {
   const router = useRouter();
@@ -17,6 +33,95 @@ export default function ListingDetailsPage() {
   const reviewsQuery = useReviewsByUser(listing?.host?.id);
   const reviews = (reviewsQuery.data as any)?.data || [];
   const [showAllPhotos, setShowAllPhotos] = useState(false);
+
+  // ── booking state ───────────────────────────────────────────────────────────
+  const today = toYMD(new Date());
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  // ── calendar navigation ─────────────────────────────────────────────────────
+  const [calDate, setCalDate] = useState(() => new Date());
+  const calYear  = calDate.getFullYear();
+  const calMonth = calDate.getMonth();
+
+  // ── slot state (SLOT booking type) ──────────────────────────────────────────
+  const [slotDay, setSlotDay]             = useState('');
+  const [availableSlots, setAvailableSlots] = useState<any[]>([]);
+  const [slotsLoading, setSlotsLoading]   = useState(false);
+  const [selectedSlot, setSelectedSlot]   = useState<{startTime: string; endTime: string} | null>(null);
+
+  const isSlot  = listing?.bookingType === 'SLOT';
+  const isDaily = !isSlot;
+
+  // fetch time slots when slotDay changes
+  useEffect(() => {
+    if (!isSlot || !slotDay || !id) return;
+    setSlotsLoading(true);
+    setAvailableSlots([]);
+    setSelectedSlot(null);
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+    fetch(`${apiUrl}/api/listings/${id}/available-slots?date=${slotDay}`)
+      .then((r) => r.json())
+      .then((j) => setAvailableSlots(j?.data ?? j ?? []))
+      .catch(() => setAvailableSlots([]))
+      .finally(() => setSlotsLoading(false));
+  }, [isSlot, slotDay, id]);
+
+  // ── price calculation ───────────────────────────────────────────────────────
+  const nightsCount = useMemo(() => {
+    if (isSlot) return selectedSlot ? 1 : 0;
+    return daysBetween(startDate, endDate);
+  }, [isSlot, startDate, endDate, selectedSlot]);
+
+  const basePrice = isSlot
+    ? Number(listing?.slotConfiguration?.pricePerSlot ?? listing?.pricePerDay ?? 0)
+    : Number(listing?.pricePerDay ?? 0);
+
+  const subtotal   = nightsCount * basePrice;
+  const serviceFee = Math.round(subtotal * 0.10 * 100) / 100;
+  const total      = subtotal + serviceFee;
+
+  // ── calendar helpers ────────────────────────────────────────────────────────
+  const firstDay = firstDayOfMonth(calYear, calMonth);
+  const totalDays = daysInMonth(calYear, calMonth);
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  function handleDayClick(dayStr: string) {
+    if (dayStr < today) return;
+    if (!startDate || (startDate && endDate)) {
+      setStartDate(dayStr);
+      setEndDate('');
+    } else {
+      if (dayStr < startDate) {
+        setEndDate(startDate);
+        setStartDate(dayStr);
+      } else {
+        setEndDate(dayStr);
+      }
+    }
+  }
+
+  function dayClass(dayStr: string): string {
+    if (dayStr < today) return 'text-gray-300 cursor-not-allowed';
+    if (dayStr === startDate || dayStr === endDate)
+      return 'bg-blue-500 text-white rounded-full cursor-pointer';
+    if (startDate && endDate && dayStr > startDate && dayStr < endDate)
+      return 'bg-blue-100 text-blue-800 cursor-pointer';
+    return 'hover:bg-gray-100 cursor-pointer rounded-full text-gray-900';
+  }
+
+  // ── book button handler ─────────────────────────────────────────────────────
+  function handleBook() {
+    if (isSlot) {
+      if (!slotDay || !selectedSlot) return;
+      void router.push(
+        `/booking/${id}?startDate=${slotDay}&endDate=${slotDay}&startTime=${selectedSlot.startTime}&endTime=${selectedSlot.endTime}`,
+      );
+    } else {
+      if (!startDate || !endDate) return;
+      void router.push(`/booking/${id}?startDate=${startDate}&endDate=${endDate}`);
+    }
+  }
 
   const images = listing?.images || [];
   const displayImages = showAllPhotos ? images : images.slice(0, 5);
@@ -294,60 +399,119 @@ export default function ListingDetailsPage() {
                     id="listing-calendar"
                     className="rounded-2xl border border-gray-200 bg-white p-8"
                   >
-                    <h2 className="mb-6 text-xl font-bold text-gray-900">
+                    <h2 className="mb-2 text-xl font-bold text-gray-900">
                       Availability
                     </h2>
-                    <div className="rounded-xl border border-gray-200 p-6">
-                      <div className="mb-4 flex items-center justify-between">
-                        <button className="rounded-lg p-2 transition hover:bg-gray-100">
-                          <i className="fa-solid fa-chevron-left text-gray-600"></i>
-                        </button>
-                        <h3 className="font-semibold text-gray-900">
-                          January 2024
-                        </h3>
-                        <button className="rounded-lg p-2 transition hover:bg-gray-100">
-                          <i className="fa-solid fa-chevron-right text-gray-600"></i>
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-7 gap-2 text-center">
-                        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(
-                          (day) => (
-                            <div
-                              key={day}
-                              className="py-2 text-xs font-medium text-gray-500"
-                            >
-                              {day}
-                            </div>
-                          ),
-                        )}
-                        {Array.from({ length: 31 }, (_, i) => i + 1).map(
-                          (day) => (
-                            <div
-                              key={day}
-                              className={`py-2 text-sm ${
-                                day >= 4 && day <= 14
-                                  ? 'cursor-pointer rounded-lg bg-gray-200'
-                                  : day >= 15 && day <= 25
-                                    ? 'cursor-pointer rounded-lg text-gray-900 transition hover:bg-gray-100'
-                                    : 'text-gray-400'
-                              }`}
-                            >
-                              {day}
-                            </div>
-                          ),
-                        )}
-                      </div>
-                      <div className="mt-4 flex items-center justify-between border-t border-gray-200 pt-4 text-sm">
-                        <div className="flex items-center space-x-2">
-                          <div className="h-4 w-4 rounded bg-gray-200"></div>
-                          <span className="text-gray-600">Booked</span>
+                    <p className="mb-6 text-sm text-gray-500">
+                      {isDaily ? 'Select your check-in and check-out dates below.' : 'Pick a date then choose a time slot.'}
+                    </p>
+
+                    {isDaily ? (
+                      <div className="rounded-xl border border-gray-200 p-6">
+                        {/* Month navigation */}
+                        <div className="mb-4 flex items-center justify-between">
+                          <button
+                            onClick={() => setCalDate(new Date(calYear, calMonth - 1, 1))}
+                            className="rounded-lg p-2 transition hover:bg-gray-100"
+                          >
+                            <i className="fa-solid fa-chevron-left text-gray-600"></i>
+                          </button>
+                          <h3 className="font-semibold text-gray-900">
+                            {MONTH_NAMES[calMonth]} {calYear}
+                          </h3>
+                          <button
+                            onClick={() => setCalDate(new Date(calYear, calMonth + 1, 1))}
+                            className="rounded-lg p-2 transition hover:bg-gray-100"
+                          >
+                            <i className="fa-solid fa-chevron-right text-gray-600"></i>
+                          </button>
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <div className="h-4 w-4 rounded border-2 border-gray-300"></div>
-                          <span className="text-gray-600">Available</span>
+
+                        {/* Day headers */}
+                        <div className="grid grid-cols-7 gap-1 text-center">
+                          {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d) => (
+                            <div key={d} className="py-2 text-xs font-medium text-gray-500">{d}</div>
+                          ))}
+
+                          {/* Empty cells before first day */}
+                          {Array.from({ length: firstDay }).map((_, i) => (
+                            <div key={`e${i}`} />
+                          ))}
+
+                          {/* Day cells */}
+                          {Array.from({ length: totalDays }, (_, i) => {
+                            const dayNum = i + 1;
+                            const dayStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+                            return (
+                              <div
+                                key={dayNum}
+                                onClick={() => handleDayClick(dayStr)}
+                                className={`flex h-9 w-9 mx-auto items-center justify-center text-sm transition ${dayClass(dayStr)}`}
+                              >
+                                {dayNum}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Legend */}
+                        <div className="mt-4 flex items-center space-x-6 border-t border-gray-200 pt-4 text-xs text-gray-500">
+                          <div className="flex items-center space-x-2">
+                            <div className="h-4 w-4 rounded-full bg-blue-500" />
+                            <span>Selected</span>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <div className="h-4 w-4 rounded-full bg-blue-100" />
+                            <span>In range</span>
+                          </div>
+                          {startDate && endDate && (
+                            <span className="ml-auto font-medium text-blue-600">
+                              {daysBetween(startDate, endDate)} night{daysBetween(startDate, endDate) !== 1 ? 's' : ''} selected
+                            </span>
+                          )}
                         </div>
                       </div>
-                    </div>
+                    ) : (
+                      /* SLOT listing — date + slot picker */
+                      <div className="space-y-4">
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-gray-700">Select date</label>
+                          <input
+                            type="date"
+                            min={today}
+                            value={slotDay}
+                            onChange={(e) => setSlotDay(e.target.value)}
+                            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                        {slotDay && (
+                          <div>
+                            <label className="mb-2 block text-xs font-semibold text-gray-700">Available slots</label>
+                            {slotsLoading ? (
+                              <p className="text-sm text-gray-500">Loading slots…</p>
+                            ) : availableSlots.length === 0 ? (
+                              <p className="text-sm text-gray-500">No slots available for this date.</p>
+                            ) : (
+                              <div className="grid grid-cols-3 gap-2">
+                                {availableSlots.map((slot: any) => (
+                                  <button
+                                    key={slot.startTime}
+                                    onClick={() => setSelectedSlot(slot)}
+                                    className={`rounded-lg border px-3 py-2 text-sm transition ${
+                                      selectedSlot?.startTime === slot.startTime
+                                        ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
+                                        : 'border-gray-300 hover:border-blue-300'
+                                    }`}
+                                  >
+                                    {slot.startTime}–{slot.endTime}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Location */}
@@ -583,46 +747,88 @@ export default function ListingDetailsPage() {
                     </div>
 
                     <div className="mb-6 space-y-3">
-                      <div className="rounded-lg border border-gray-300">
-                        <div className="flex border-b border-gray-300">
-                          <div className="flex-1 p-3">
-                            <label className="mb-1 block text-xs font-semibold text-gray-700">
-                              PICKUP
-                            </label>
+                      {isDaily ? (
+                        <div className="rounded-lg border border-gray-300">
+                          <div className="flex border-b border-gray-300">
+                            <div className="flex-1 p-3">
+                              <label className="mb-1 block text-xs font-semibold text-gray-700">
+                                CHECK-IN
+                              </label>
+                              <input
+                                type="date"
+                                min={today}
+                                value={startDate}
+                                onChange={(e) => {
+                                  setStartDate(e.target.value);
+                                  if (endDate && endDate <= e.target.value) setEndDate('');
+                                }}
+                                className="w-full text-sm text-gray-900 focus:outline-none"
+                              />
+                            </div>
+                            <div className="flex-1 border-l border-gray-300 p-3">
+                              <label className="mb-1 block text-xs font-semibold text-gray-700">
+                                CHECK-OUT
+                              </label>
+                              <input
+                                type="date"
+                                min={startDate || today}
+                                value={endDate}
+                                onChange={(e) => setEndDate(e.target.value)}
+                                className="w-full text-sm text-gray-900 focus:outline-none"
+                                disabled={!startDate}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        /* SLOT booking card */
+                        <div className="rounded-lg border border-gray-300 p-3 space-y-3">
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold text-gray-700">DATE</label>
                             <input
-                              type="text"
-                              placeholder="Select date"
+                              type="date"
+                              min={today}
+                              value={slotDay}
+                              onChange={(e) => setSlotDay(e.target.value)}
                               className="w-full text-sm text-gray-900 focus:outline-none"
                             />
                           </div>
-                          <div className="flex-1 border-l border-gray-300 p-3">
-                            <label className="mb-1 block text-xs font-semibold text-gray-700">
-                              RETURN
-                            </label>
-                            <input
-                              type="text"
-                              placeholder="Select date"
-                              className="w-full text-sm text-gray-900 focus:outline-none"
-                            />
-                          </div>
+                          {slotDay && (
+                            <div>
+                              <label className="mb-1 block text-xs font-semibold text-gray-700">TIME SLOT</label>
+                              {slotsLoading ? (
+                                <p className="text-xs text-gray-400">Loading…</p>
+                              ) : availableSlots.length === 0 ? (
+                                <p className="text-xs text-gray-400">No slots available.</p>
+                              ) : (
+                                <select
+                                  value={selectedSlot ? `${selectedSlot.startTime}-${selectedSlot.endTime}` : ''}
+                                  onChange={(e) => {
+                                    const slot = availableSlots.find(
+                                      (s: any) => `${s.startTime}-${s.endTime}` === e.target.value,
+                                    );
+                                    setSelectedSlot(slot || null);
+                                  }}
+                                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:outline-none"
+                                >
+                                  <option value="">Select a slot</option>
+                                  {availableSlots.map((s: any) => (
+                                    <option key={s.startTime} value={`${s.startTime}-${s.endTime}`}>
+                                      {s.startTime} – {s.endTime}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <div className="p-3">
-                          <label className="mb-1 block text-xs font-semibold text-gray-700">
-                            TIME
-                          </label>
-                          <select className="w-full text-sm text-gray-900 focus:outline-none">
-                            <option>10:00 AM</option>
-                            <option>11:00 AM</option>
-                            <option>12:00 PM</option>
-                            <option>1:00 PM</option>
-                          </select>
-                        </div>
-                      </div>
+                      )}
                     </div>
 
                     <button
-                      onClick={() => router.push(`/booking/${id}`)}
-                      className="mb-4 w-full rounded-lg bg-blue-500 py-4 font-semibold text-white transition hover:bg-blue-600"
+                      onClick={handleBook}
+                      disabled={isDaily ? (!startDate || !endDate) : (!slotDay || !selectedSlot)}
+                      className="mb-4 w-full rounded-lg bg-blue-500 py-4 font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Request to book
                     </button>
@@ -631,37 +837,25 @@ export default function ListingDetailsPage() {
                       You won&apos;t be charged yet
                     </p>
 
-                    <div className="space-y-3 border-b border-gray-200 pb-6 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-700">
-                          {formatTnd(listing.pricePerDay)} × 3 days
-                        </span>
-                        <span className="text-gray-900">
-                          {formatTnd(listing.pricePerDay * 3)}
-                        </span>
+                    {nightsCount > 0 && (
+                      <div className="space-y-3 border-b border-gray-200 pb-6 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-700">
+                            {formatTnd(basePrice)} × {nightsCount} {isSlot ? 'slot' : 'night'}{nightsCount !== 1 ? 's' : ''}
+                          </span>
+                          <span className="text-gray-900">{formatTnd(subtotal)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-700">Service fee (10%)</span>
+                          <span className="text-gray-900">{formatTnd(serviceFee)}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-700">Service fee</span>
-                        <span className="text-gray-900">
-                          {formatTnd(listing.pricePerDay * 0.1)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-700">Insurance</span>
-                        <span className="text-gray-900">
-                          {formatTnd(listing.pricePerDay * 0.05)}
-                        </span>
-                      </div>
-                    </div>
+                    )}
 
                     <div className="flex items-center justify-between pt-6 font-semibold">
                       <span className="text-gray-900">Total</span>
                       <span className="text-lg text-gray-900">
-                        {formatTnd(
-                          listing.pricePerDay * 3 +
-                            listing.pricePerDay * 0.1 +
-                            listing.pricePerDay * 0.05,
-                        )}
+                        {nightsCount > 0 ? formatTnd(total) : '—'}
                       </span>
                     </div>
                   </div>

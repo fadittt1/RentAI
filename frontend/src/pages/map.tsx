@@ -1,77 +1,77 @@
+import { Layout } from '@/components/layout/Layout';
+import { useRouter } from 'next/router';
+import { useState } from 'react';
+import { useListings } from '@/lib/api/hooks/useListings';
+import ListingMap from '@/components/shared/ListingMap';
+
+const DEFAULT_LAT = 36.8578;
+const DEFAULT_LNG = 11.092;
+const DEFAULT_RADIUS = 20;
+
 export default function MapPage() {
+  const router = useRouter();
+  const [searchInput, setSearchInput] = useState('');
+
+  const { data, isLoading } = useListings({
+    lat: DEFAULT_LAT,
+    lng: DEFAULT_LNG,
+    radiusKm: DEFAULT_RADIUS,
+    limit: 50,
+    sortBy: 'distance',
+  });
+
+  const listings = data?.items ?? [];
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    if (!searchInput.trim()) return;
+    router.push(`/search?q=${encodeURIComponent(searchInput.trim())}`);
+  }
+
   return (
-    <div className="bg-gray-50 font-sans overflow-hidden">
-      <div
-        id="map-container"
-        className="relative"
-        style={{ height: 'calc(100vh - 73px)' }}
-      >
-        <div className="absolute inset-0 bg-gray-200">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            className="w-full h-full object-cover"
-            src="https://storage.googleapis.com/uxpilot-auth.appspot.com/e61652dc21-cab20e8e19405eef87bb.png"
-            alt="interactive map view of Tunis with rental location pins, satellite view, detailed streets"
-          />
-
-          <div
-            id="pin-1"
-            className="absolute top-[15%] left-[20%] bg-blue-500 text-white rounded-full px-3 py-2 shadow-lg text-sm font-semibold cursor-pointer hover:bg-blue-600 hover:scale-110 transition flex items-center"
+    <Layout>
+      <div className="relative" style={{ height: 'calc(100vh - 73px)' }}>
+        {/* Floating search bar */}
+        <div className="absolute left-1/2 top-4 z-[1000] w-full max-w-lg -translate-x-1/2 px-4">
+          <form
+            onSubmit={handleSearch}
+            className="flex overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl"
           >
-            <i className="fa-solid fa-house mr-1.5 text-xs" />
-            $120/day
-          </div>
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="What do you want to rent?"
+              className="flex-1 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
+            />
+            <button
+              type="submit"
+              className="flex items-center justify-center bg-blue-500 px-5 text-white transition hover:bg-blue-600"
+            >
+              <i className="fa-solid fa-search" />
+            </button>
+          </form>
         </div>
 
-        <div
-          id="search-bar-map"
-          className="absolute top-6 left-1/2 transform -translate-x-1/2 z-40 w-[600px]"
-        >
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
-            <div className="flex items-stretch">
-              <div className="flex-1 p-4 border-r border-gray-200">
-                <input
-                  type="text"
-                  placeholder="What do you want to rent?"
-                  className="w-full text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
-                />
-              </div>
-
-              <div className="flex-1 p-4 border-r border-gray-200">
-                <div className="flex items-center">
-                  <i className="fa-solid fa-location-dot text-blue-500 mr-2 text-sm" />
-                  <input
-                    type="text"
-                    placeholder="Tunis, Tunisia"
-                    className="w-full text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center px-3">
-                <button className="bg-blue-500 hover:bg-blue-600 text-white rounded-full w-12 h-12 flex items-center justify-center shadow-md transition">
-                  <i className="fa-solid fa-search" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div id="filters-button" className="absolute top-6 left-6 z-40">
-          <button className="bg-white rounded-full px-5 py-3 shadow-lg flex items-center space-x-2 border border-gray-200 hover:shadow-xl transition">
-            <i className="fa-solid fa-sliders text-gray-700" />
-            <span className="text-sm font-medium text-gray-900">Filters</span>
-          </button>
-        </div>
-
-        <div id="results-count" className="absolute top-6 right-6 z-40">
-          <div className="bg-white rounded-full px-5 py-3 shadow-lg border border-gray-200">
+        {/* Floating results count */}
+        <div className="absolute right-4 top-4 z-[1000]">
+          <div className="rounded-full border border-gray-200 bg-white px-4 py-2 shadow-md">
             <span className="text-sm font-semibold text-gray-900">
-              Listings in this area
+              {isLoading
+                ? 'Loading…'
+                : `${listings.length} listing${listings.length !== 1 ? 's' : ''} nearby`}
             </span>
           </div>
         </div>
+
+        {/* Real Leaflet map */}
+        <ListingMap
+          listings={listings}
+          center={[DEFAULT_LAT, DEFAULT_LNG]}
+          zoom={12}
+          height="100%"
+        />
       </div>
-    </div>
+    </Layout>
   );
 }
