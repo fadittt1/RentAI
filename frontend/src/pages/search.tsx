@@ -40,7 +40,6 @@ export default function SearchPage() {
   const [aiResults, setAiResults]     = useState<any[]>([]);
   const [fallbackResults, setFallbackResults] = useState<any[]>([]);
   const [fallbackLoading, setFallbackLoading] = useState(false);
-  const [followUpAnswer, setFollowUpAnswer]   = useState('');
   const [lastQuery, setLastQuery]     = useState('');
   const isReady = useRef(false);
 
@@ -123,7 +122,6 @@ export default function SearchPage() {
     if (!inputQ.trim()) return;
     setChips([]);
     setFollowUp(null);
-    setFollowUpAnswer('');
     void runAiSearch(inputQ, false, '');
   }
 

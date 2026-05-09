@@ -12,7 +12,7 @@ export default function MapPage() {
   const router = useRouter();
   const [searchInput, setSearchInput] = useState('');
 
-  const { data, isLoading } = useListings({
+  const { data, isLoading, isError } = useListings({
     lat: DEFAULT_LAT,
     lng: DEFAULT_LNG,
     radiusKm: DEFAULT_RADIUS,
@@ -59,6 +59,8 @@ export default function MapPage() {
             <span className="text-sm font-semibold text-gray-900">
               {isLoading
                 ? 'Loading…'
+                : isError
+                ? 'Could not load listings'
                 : `${listings.length} listing${listings.length !== 1 ? 's' : ''} nearby`}
             </span>
           </div>

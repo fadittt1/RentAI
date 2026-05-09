@@ -2,7 +2,7 @@
 CREATE TYPE "CategoryRequestStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'MERGED');
 
 -- DropIndex
-DROP INDEX "listings_location_gist_idx";
+DROP INDEX IF EXISTS "listings_location_gist_idx";
 
 -- AlterTable
 ALTER TABLE "categories" ADD COLUMN     "is_active" BOOLEAN NOT NULL DEFAULT true;
@@ -133,7 +133,11 @@ ALTER TABLE "category_requests" ADD CONSTRAINT "category_requests_requester_id_f
 ALTER TABLE "category_requests" ADD CONSTRAINT "category_requests_resolved_category_id_fkey" FOREIGN KEY ("resolved_category_id") REFERENCES "categories"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "payout_items" ADD CONSTRAINT "payout_items_ledgerEntryId_fkey" FOREIGN KEY ("ledgerEntryId") REFERENCES "ledger_entries"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payout_items_ledgerEntryId_fkey') THEN
+    ALTER TABLE "payout_items" ADD CONSTRAINT "payout_items_ledgerEntryId_fkey" FOREIGN KEY ("ledgerEntryId") REFERENCES "ledger_entries"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+END $$;
 
 -- AddForeignKey
 ALTER TABLE "chat_conversations" ADD CONSTRAINT "chat_conversations_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

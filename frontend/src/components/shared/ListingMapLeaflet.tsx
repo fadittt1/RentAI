@@ -22,9 +22,8 @@ function makePriceIcon(price: number) {
   return L.divIcon({
     className: '',
     html: `<span style="display:inline-block;background:#3b82f6;color:#fff;padding:3px 10px;border-radius:9999px;font-size:12px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.3);white-space:nowrap;cursor:pointer">${formatTnd(price)}</span>`,
-    iconSize: [60, 24],
-    iconAnchor: [30, 12],
-    popupAnchor: [0, -14],
+    iconAnchor: [0, 12],
+    popupAnchor: [40, -14],
   });
 }
 

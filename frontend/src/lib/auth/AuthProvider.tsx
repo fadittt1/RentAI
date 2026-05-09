@@ -15,6 +15,7 @@ import {
 } from '@/lib/auth/storage';
 import { toast } from '@/components/ui/Toaster';
 import { useRouter } from 'next/router';
+import { useQueryClient } from '@tanstack/react-query';
 
 type AuthState = {
   accessToken: string | null;
@@ -50,6 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [hasHydrated, setHasHydrated] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   /* ---------------------------------------------------------------
    * Hydration-safe restore on mount
@@ -110,6 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setState({ accessToken: null, refreshToken: null, user: null });
       setHasHydrated(true);
       setAuthReady(true);
+      queryClient.clear();
       toast({ title: 'Session expired', variant: 'info' });
       router.push('/auth/login');
     };
@@ -161,10 +164,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setState({ accessToken: null, refreshToken: null, user: null });
     setHasHydrated(true);
     setAuthReady(true);
+    queryClient.clear();
     toast({ title: 'Signed out', variant: 'info' });
     router.push('/auth/login');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [queryClient, router]);
 
   const refreshAccessToken = useCallback(async (): Promise<string | null> => {
     try {
