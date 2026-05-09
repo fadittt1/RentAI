@@ -404,6 +404,47 @@ model AiSearchLog {
 }
 
 // ===========================
+// AI Price Suggestion Log
+// ===========================
+model PriceSuggestionLog {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  city            String  @db.VarChar(255)
+  categorySlug    String  @map("category_slug") @db.VarChar(100)
+  unit            String  @db.VarChar(50)
+  season          String? @db.VarChar(50)
+  propertyType    String? @map("property_type") @db.VarChar(50)
+  distanceToSeaKm Float?  @map("distance_to_sea_km")
+  capacity        Int?
+  lat             Float?
+  lng             Float?
+
+  suggestedPrice Decimal @map("suggested_price") @db.Decimal(10, 2)
+  rangeMin       Decimal @map("range_min") @db.Decimal(10, 2)
+  rangeMax       Decimal @map("range_max") @db.Decimal(10, 2)
+  confidence     String  @db.VarChar(10)
+  compsCity      Int     @map("comps_city")
+  compsNational  Int     @map("comps_national")
+  wCity          Float   @map("w_city")
+  wNational      Float   @map("w_national")
+
+  inputJson   Json  @map("input_json") @db.JsonB
+  outputJson  Json  @map("output_json") @db.JsonB
+  adjustments Json? @db.JsonB
+  explanation Json  @db.JsonB
+
+  listingId  String?  @map("listing_id")
+  finalPrice Decimal? @map("final_price") @db.Decimal(10, 2)
+  overridden Boolean?
+
+  @@index([createdAt])
+  @@index([city, categorySlug], map: "ai_price_suggestion_logs_city_category_slug_idx")
+  @@index([listingId], map: "ai_price_suggestion_logs_listing_id_idx")
+  @@map("ai_price_suggestion_logs")
+}
+
+// ===========================
 // Ledger Models
 // ===========================
 enum LedgerEntryType {
