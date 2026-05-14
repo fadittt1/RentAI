@@ -8,6 +8,7 @@ import { useCategories } from '@/lib/api/hooks/useCategories';
 import type { Category } from '@/lib/api/types';
 import { CategoriesService } from '@/lib/api/generated';
 import { useMutation } from '@tanstack/react-query';
+import PriceSuggestionCard from '@/components/host/PriceSuggestionCard';
 
 interface ImagePreview {
   file: File;
@@ -412,7 +413,9 @@ export default function HostCreatePage() {
 
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Price per day (TND) *
+                    {categories.find((c) => c.id === formData.categoryId)?.slug === 'stays'
+                      ? 'Price per night (TND) *'
+                      : 'Price per day (TND) *'}
                   </label>
                   <input
                     type="number"
@@ -478,6 +481,25 @@ export default function HostCreatePage() {
                     />
                   </div>
                 </div>
+
+                {/* AI Price Suggestion — stays category only, shown after address + coords are filled */}
+                {(() => {
+                  const selectedCat = categories.find((c) => c.id === formData.categoryId);
+                  if (selectedCat?.slug !== 'stays') return null;
+                  const city = formData.address.split(',')[0]?.trim() || '';
+                  if (!city) return null;
+                  return (
+                    <PriceSuggestionCard
+                      city={city}
+                      categorySlug="stays"
+                      lat={formData.latitude || undefined}
+                      lng={formData.longitude || undefined}
+                      onAccept={(price) =>
+                        setFormData((prev) => ({ ...prev, pricePerDay: String(price) }))
+                      }
+                    />
+                  );
+                })()}
 
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">

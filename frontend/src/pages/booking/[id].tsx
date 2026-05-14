@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Layout } from '@/components/layout/Layout';
 import { useRouter } from 'next/router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useCreateBooking } from '@/lib/api/hooks/useCreateBooking';
 import { BookingsService } from '@/lib/api/generated';
 import { formatTnd } from '@/lib/utils/format';
@@ -15,8 +15,22 @@ import { useWallet } from '@/lib/api/hooks/useWallet';
 export default function BookingPage() {
   const router = useRouter();
   const listingId = router.query.id as string | undefined;
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate] = useState(
+    (router.query.startDate as string) || '',
+  );
+  const [endDate, setEndDate] = useState(
+    (router.query.endDate as string) || '',
+  );
+  const [datesFromListing, setDatesFromListing] = useState(false);
+
+  useEffect(() => {
+    if (router.isReady) {
+      if (router.query.startDate) setStartDate(router.query.startDate as string);
+      if (router.query.endDate) setEndDate(router.query.endDate as string);
+      if (router.query.startDate && router.query.endDate) setDatesFromListing(true);
+    }
+  }, [router.isReady, router.query.startDate, router.query.endDate]);
+
   const [message, setMessage] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('card');
   const [acceptTerms, setAcceptTerms] = useState(false);
@@ -66,7 +80,7 @@ export default function BookingPage() {
       setPaid(true);
     } catch (error: any) {
       console.error('Payment failed:', error);
-      alert(error?.body?.message || 'Payment failed');
+      alert(error?.body?.error?.message || error?.body?.message || 'Payment failed');
     }
   };
 
@@ -79,12 +93,23 @@ export default function BookingPage() {
   };
 
   const days = calculateDays();
-  const basePrice = listing ? listing.pricePerDay * days : 0;
+  const basePrice = listing ? Number(listing.pricePerDay) * days : 0;
   const serviceFee = basePrice * 0.1;
   const insuranceFee = basePrice * 0.05;
   const subtotal = basePrice + serviceFee + insuranceFee;
   const taxes = subtotal * 0.1;
   const total = subtotal + taxes;
+
+  const bookingErrorMessage = (() => {
+    const err = createBooking.error as any;
+    const body = err?.body;
+    if (body && typeof body === 'object') {
+      // Backend HttpExceptionFilter returns { success: false, error: { code, message } }
+      const msg = body.error?.message || body.message;
+      return Array.isArray(msg) ? msg.join(', ') : msg || 'Booking failed.';
+    }
+    return err?.message || 'Check dates/availability and try again.';
+  })();
 
   return (
     <Layout>
@@ -109,39 +134,78 @@ export default function BookingPage() {
               id="booking-dates"
               className="mb-6 rounded-xl border border-gray-200 bg-white p-6"
             >
-              <h2 className="mb-4 text-xl font-semibold text-gray-900">
-                Your rental dates
-              </h2>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="rounded-lg border border-gray-200 p-4">
-                  <label className="mb-1 block text-xs font-semibold text-gray-700">
-                    Check-in
-                  </label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="mt-1 w-full text-gray-900 focus:outline-none"
-                  />
-                  <div className="mt-1 text-sm text-gray-500">
-                    After 2:00 PM
-                  </div>
-                </div>
-                <div className="rounded-lg border border-gray-200 p-4">
-                  <label className="mb-1 block text-xs font-semibold text-gray-700">
-                    Check-out
-                  </label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="mt-1 w-full text-gray-900 focus:outline-none"
-                  />
-                  <div className="mt-1 text-sm text-gray-500">
-                    Before 11:00 AM
-                  </div>
-                </div>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Your rental dates
+                </h2>
+                {datesFromListing && (
+                  <Link
+                    href={`/listings/${listingId}`}
+                    className="text-sm font-medium text-blue-500 hover:text-blue-600 transition"
+                  >
+                    <i className="fa-solid fa-pen mr-1"></i>Edit dates
+                  </Link>
+                )}
               </div>
+              {datesFromListing ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                    <div className="mb-1 text-xs font-semibold text-gray-500">
+                      Check-in
+                    </div>
+                    <div className="text-base font-medium text-gray-900">
+                      {new Date(startDate + 'T00:00:00').toLocaleDateString('en-GB', {
+                        weekday: 'short',
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </div>
+                    <div className="mt-1 text-sm text-gray-500">After 2:00 PM</div>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                    <div className="mb-1 text-xs font-semibold text-gray-500">
+                      Check-out
+                    </div>
+                    <div className="text-base font-medium text-gray-900">
+                      {new Date(endDate + 'T00:00:00').toLocaleDateString('en-GB', {
+                        weekday: 'short',
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </div>
+                    <div className="mt-1 text-sm text-gray-500">Before 11:00 AM</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="rounded-lg border border-gray-200 p-4">
+                    <label className="mb-1 block text-xs font-semibold text-gray-700">
+                      Check-in
+                    </label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="mt-1 w-full text-gray-900 focus:outline-none"
+                    />
+                    <div className="mt-1 text-sm text-gray-500">After 2:00 PM</div>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 p-4">
+                    <label className="mb-1 block text-xs font-semibold text-gray-700">
+                      Check-out
+                    </label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="mt-1 w-full text-gray-900 focus:outline-none"
+                    />
+                    <div className="mt-1 text-sm text-gray-500">Before 11:00 AM</div>
+                  </div>
+                </div>
+              )}
               <div className="mt-4 border-t border-gray-200 pt-4">
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-gray-700">
@@ -521,7 +585,7 @@ export default function BookingPage() {
               <div className="mt-4">
                 <InlineError
                   title="Booking failed"
-                  message="Check dates/availability and try again."
+                  message={bookingErrorMessage}
                   onRetry={handleCreateBooking}
                 />
               </div>

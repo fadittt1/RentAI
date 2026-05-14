@@ -221,7 +221,7 @@ describe('AiSearchService - JSON Parsing and Validation', () => {
           lat: 36.8578,
           lng: 11.092,
           radiusKm: 10,
-          followUpUsed: true, // ✅ Force RESULT
+          followUpUsed: 2, // ✅ Force RESULT
           followUpAnswer: 'tomorrow',
         });
 
@@ -250,7 +250,7 @@ describe('AiSearchService - JSON Parsing and Validation', () => {
 
         const result = await service.search({
           query: 'villa under 250',
-          followUpUsed: true,
+          followUpUsed: 2,
           followUpAnswer: 'tomorrow',
         });
 
@@ -462,7 +462,7 @@ describe('AiSearchService - JSON Parsing and Validation', () => {
           query: 'villa',
           lat: 36.8578,
           lng: 11.092,
-          followUpUsed: true,
+          followUpUsed: 2,
           followUpAnswer: 'tomorrow for 3 days',
         });
 

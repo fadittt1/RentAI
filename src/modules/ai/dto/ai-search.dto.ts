@@ -5,12 +5,54 @@ import {
   IsLatitude,
   IsLongitude,
   IsOptional,
-  IsBoolean,
   IsArray,
   Min,
   Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+
+export class SearchFiltersDto {
+  @ApiProperty({ required: false })
+  q?: string;
+
+  @ApiProperty({ required: false })
+  categorySlug?: string;
+
+  @ApiProperty({ required: false })
+  city?: string;
+
+  @ApiProperty({ required: false })
+  nearSea?: boolean;
+
+  @ApiProperty({ required: false })
+  minPrice?: number;
+
+  @ApiProperty({ required: false })
+  maxPrice?: number;
+
+  @ApiProperty({ required: false, enum: ['DAILY', 'SLOT', 'ANY'] })
+  bookingType?: 'DAILY' | 'SLOT' | 'ANY';
+
+  @ApiProperty({ required: false })
+  availableFrom?: string;
+
+  @ApiProperty({ required: false })
+  availableTo?: string;
+
+  @ApiProperty({
+    required: false,
+    enum: ['distance', 'date', 'price_asc', 'price_desc'],
+  })
+  sortBy?: 'distance' | 'date' | 'price_asc' | 'price_desc';
+
+  @ApiProperty({ required: false })
+  radiusKm?: number;
+
+  // Set once the user has explicitly resolved location ("Près de moi" / "Peu importe" / a city).
+  // Echoed back as previousFilters so subsequent turns skip the location follow-up.
+  @ApiProperty({ required: false })
+  locationConfirmed?: boolean;
+}
 
 export class AiSearchRequestDto {
   @ApiProperty({
@@ -68,15 +110,17 @@ export class AiSearchRequestDto {
   availableCategorySlugs?: string[];
 
   @ApiProperty({
-    description: 'Whether a follow-up question has already been used',
-    example: false,
+    description: 'How many follow-up rounds have already been used (max 3)',
+    example: 0,
     required: false,
-    default: false,
+    default: 0,
   })
   @IsOptional()
-  @IsBoolean()
-  @Type(() => Boolean)
-  followUpUsed?: boolean = false;
+  @IsNumber()
+  @Min(0)
+  @Max(3)
+  @Type(() => Number)
+  followUpUsed?: number = 0;
 
   @ApiProperty({
     description: 'Answer to previous follow-up question',
@@ -86,38 +130,13 @@ export class AiSearchRequestDto {
   @IsOptional()
   @IsString()
   followUpAnswer?: string;
-}
-
-export class SearchFiltersDto {
-  @ApiProperty({ required: false })
-  q?: string;
-
-  @ApiProperty({ required: false })
-  categorySlug?: string;
-
-  @ApiProperty({ required: false })
-  minPrice?: number;
-
-  @ApiProperty({ required: false })
-  maxPrice?: number;
-
-  @ApiProperty({ required: false, enum: ['DAILY', 'SLOT', 'ANY'] })
-  bookingType?: 'DAILY' | 'SLOT' | 'ANY';
-
-  @ApiProperty({ required: false })
-  availableFrom?: string;
-
-  @ApiProperty({ required: false })
-  availableTo?: string;
 
   @ApiProperty({
+    description: 'Filters from the previous search — enables refinement mode',
     required: false,
-    enum: ['distance', 'date', 'price_asc', 'price_desc'],
   })
-  sortBy?: 'distance' | 'date' | 'price_asc' | 'price_desc';
-
-  @ApiProperty({ required: false })
-  radiusKm?: number;
+  @IsOptional()
+  previousFilters?: SearchFiltersDto;
 }
 
 export class SearchChipDto {
@@ -158,6 +177,26 @@ export class AiSearchResponseFollowUpDto {
   results: any[];
 }
 
+export class SearchStatsDto {
+  @ApiProperty({ description: 'Total number of matching listings' })
+  totalResults: number;
+
+  @ApiProperty({ required: false, description: 'Min price across results' })
+  minPrice?: number;
+
+  @ApiProperty({ required: false, description: 'Max price across results' })
+  maxPrice?: number;
+
+  @ApiProperty({ required: false, description: 'Average price across results' })
+  avgPrice?: number;
+
+  @ApiProperty({ required: false, description: 'Price unit, e.g. "TND/day" or "TND/slot"' })
+  priceUnit?: string;
+
+  @ApiProperty({ required: false, type: [String], description: 'Top cities represented in results' })
+  topCities?: string[];
+}
+
 export class AiSearchResponseResultDto {
   @ApiProperty({ enum: ['RESULT'] })
   mode: 'RESULT';
@@ -173,6 +212,34 @@ export class AiSearchResponseResultDto {
 
   @ApiProperty({ type: Object, isArray: true })
   results: any[];
+
+  @ApiProperty({ type: [String], required: false, example: [] })
+  relaxedConstraints?: string[];
+
+  @ApiProperty({
+    required: false,
+    description: 'Conversational summary of what was found (1-2 sentences)',
+    example: "J'ai trouvé 12 villas à Kelibia, prix entre 180 et 450 TND/jour.",
+  })
+  summary?: string;
+
+  @ApiProperty({ type: SearchStatsDto, required: false })
+  stats?: SearchStatsDto;
+
+  @ApiProperty({
+    required: false,
+    type: [String],
+    description: 'Suggested follow-up refinements the user can click',
+    example: ['Seulement avec piscine', 'Moins de 250 TND', 'Bord de mer uniquement'],
+  })
+  suggestions?: string[];
+
+  @ApiProperty({
+    required: false,
+    description: 'Optional trace of how the AI interpreted the query',
+    example: "J'ai compris : villa à Kelibia, max 1000 TND, du 15 au 20 mai. Filtré par titre et prix.",
+  })
+  reasoning?: string;
 }
 
 export type AiSearchResponseDto =

@@ -16,15 +16,17 @@ export const FollowUpSchema = z.object({
 });
 
 export const SearchFiltersSchema = z.object({
-  q: z.string().optional(),
-  categorySlug: z.string().optional(),
-  minPrice: z.number().min(0).optional(),
-  maxPrice: z.number().min(0).optional(),
-  bookingType: z.enum(['DAILY', 'SLOT', 'ANY']).optional(),
-  availableFrom: z.string().optional(), // YYYY-MM-DD format
-  availableTo: z.string().optional(),
-  sortBy: z.enum(['distance', 'date', 'price_asc', 'price_desc']).optional(),
-  radiusKm: z.number().min(0).max(50).optional(),
+  q: z.string().nullable().optional(),
+  categorySlug: z.string().nullable().optional(),
+  city: z.string().nullable().optional(),
+  nearSea: z.boolean().nullable().optional(),
+  minPrice: z.number().nullable().optional(),
+  maxPrice: z.number().nullable().optional(),
+  bookingType: z.enum(['DAILY', 'SLOT', 'ANY']).nullable().optional(),
+  availableFrom: z.string().nullable().optional(),
+  availableTo: z.string().nullable().optional(),
+  sortBy: z.enum(['distance', 'date', 'price_asc', 'price_desc']).nullable().optional(),
+  radiusKm: z.number().min(0).max(200).nullable().optional(),
 });
 
 export const SearchChipSchema = z.object({

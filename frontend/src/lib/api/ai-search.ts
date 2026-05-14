@@ -35,6 +35,8 @@ export type AiListing = {
         slug?: string;
         icon?: string;
     };
+    /** Per-listing match reasons (e.g. ["Bord de mer", "Sous 500 TND"]) — render as ✓ chips under the card */
+    matches?: string[];
 };
 
 export type AiSearchRequest = {
@@ -42,8 +44,19 @@ export type AiSearchRequest = {
     lat?: number;
     lng?: number;
     radiusKm?: number;
-    followUpUsed?: boolean;
+    /** How many follow-up rounds have been used (0..3). Backend caps at 3. */
+    followUpUsed?: number;
     followUpAnswer?: string;
+    previousFilters?: Record<string, unknown>;
+};
+
+export type AiSearchStats = {
+    totalResults: number;
+    minPrice?: number;
+    maxPrice?: number;
+    avgPrice?: number;
+    priceUnit?: string;
+    topCities?: string[];
 };
 
 export type AiSearchResponse = {
@@ -52,6 +65,15 @@ export type AiSearchResponse = {
     chips: AiChip[];
     results: AiListing[];
     followUp?: AiFollowUp | null;
+    /** Constraints automatically loosened to find results (e.g. ["price", "radius"]) */
+    relaxedConstraints?: string[];
+    /** Natural-language summary, e.g. "J'ai trouvé 9 séjours à Kelibia entre 110 et 480 TND/jour." */
+    summary?: string;
+    stats?: AiSearchStats;
+    /** Clickable refinement chips, e.g. ["Bord de mer uniquement", "Moins de 250 TND"] */
+    suggestions?: string[];
+    /** Trace of how the AI interpreted the query (for an expandable "show reasoning" UI) */
+    reasoning?: string;
 };
 
 // ── Client function ───────────────────────────────────────────────────────────
