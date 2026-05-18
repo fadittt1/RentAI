@@ -23,6 +23,7 @@ import { PayoutsModule } from './modules/payouts/payouts.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { CloudinaryModule } from './modules/cloudinary/cloudinary.module';
 import { ChatbotModule } from './chatbot/chatbot.module';
+import { GeoModule } from './modules/geo/geo.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { ChatbotModule } from './chatbot/chatbot.module';
     PayoutsModule,
     CloudinaryModule,
     ChatbotModule,
+    GeoModule,
   ],
   controllers: [AppController],
   providers: [

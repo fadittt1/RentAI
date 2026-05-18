@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { HostLayout } from '@/components/host/HostLayout';
 import { api } from '@/lib/api/http';
@@ -9,6 +9,7 @@ import type { Category } from '@/lib/api/types';
 import { CategoriesService } from '@/lib/api/generated';
 import { useMutation } from '@tanstack/react-query';
 import PriceSuggestionCard from '@/components/host/PriceSuggestionCard';
+import LocationPicker from '@/components/shared/LocationPicker';
 
 interface ImagePreview {
   file: File;
@@ -29,6 +30,16 @@ export default function HostCreatePage() {
   const [images, setImages] = useState<ImagePreview[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [aiCategory, setAiCategory] = useState<{
+    categorySlug: string;
+    label: string;
+    confidence: number;
+    categoryId: string;
+  } | null>(null);
+  const [isClassifying, setIsClassifying] = useState(false);
+  // Ref so the classification callback always sees fresh categories without re-creating the callback
+  const categoriesRef = useRef<Category[]>([]);
+  useEffect(() => { categoriesRef.current = categories; }, [categories]);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -91,6 +102,33 @@ export default function HostCreatePage() {
       if (validFiles.length > 0) {
         setImages((prev) => [...prev, ...validFiles]);
         setError(null);
+
+        // Fire AI image classification — pre-fills category field if confident
+        setIsClassifying(true);
+        const fd = new FormData();
+        validFiles.slice(0, 3).forEach((img) => fd.append('images', img.file));
+        api
+          .post('/ai/classify-images', fd)
+          .then((res: any) => {
+            const data: { categorySlug: string; label: string; confidence: number } =
+              res.data ?? res;
+            if (data.confidence >= 0.5) {
+              const match = categoriesRef.current.find(
+                (c) => c.slug === data.categorySlug,
+              );
+              if (match) {
+                setFormData((prev) => ({ ...prev, categoryId: match.id }));
+                setAiCategory({
+                  categorySlug: data.categorySlug,
+                  label: data.label,
+                  confidence: data.confidence,
+                  categoryId: match.id,
+                });
+              }
+            }
+          })
+          .catch(() => {/* silent — user selects manually */})
+          .finally(() => setIsClassifying(false));
       }
 
       // Reset input
@@ -390,9 +428,10 @@ export default function HostCreatePage() {
                   </div>
                   <select
                     value={formData.categoryId}
-                    onChange={(e) =>
-                      setFormData({ ...formData, categoryId: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setFormData({ ...formData, categoryId: e.target.value });
+                      // User overrode — keep badge but mark as modified
+                    }}
                     className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                     disabled={categoriesQuery.isLoading}
@@ -404,6 +443,34 @@ export default function HostCreatePage() {
                       </option>
                     ))}
                   </select>
+
+                  {/* AI classification badge */}
+                  {isClassifying && (
+                    <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1.5">
+                      <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                      </svg>
+                      Analyse des photos par IA…
+                    </p>
+                  )}
+                  {!isClassifying && aiCategory && (
+                    <p className="text-xs mt-1.5 flex items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2 py-0.5 font-medium">
+                        <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M10 2a8 8 0 100 16A8 8 0 0010 2zm0 14a6 6 0 110-12 6 6 0 010 12zm-1-9a1 1 0 012 0v4a1 1 0 01-2 0V7zm1-2a1 1 0 100-2 1 1 0 000 2z"/>
+                        </svg>
+                        Détecté par IA
+                      </span>
+                      <span className="text-gray-600">
+                        {aiCategory.label} · <span className="font-medium">{Math.round(aiCategory.confidence * 100)}%</span>
+                      </span>
+                      {formData.categoryId !== aiCategory.categoryId && (
+                        <span className="text-gray-400">(modifié)</span>
+                      )}
+                    </p>
+                  )}
+
                   {categoriesQuery.isError && (
                     <p className="text-xs text-red-500 mt-1">
                       Failed to load categories
@@ -433,53 +500,23 @@ export default function HostCreatePage() {
 
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Address *
+                    Location *
                   </label>
-                  <input
-                    type="text"
-                    value={formData.address}
-                    onChange={(e) =>
-                      setFormData({ ...formData, address: e.target.value })
+                  <LocationPicker
+                    value={{
+                      address: formData.address,
+                      lat: parseFloat(formData.latitude) || 0,
+                      lng: parseFloat(formData.longitude) || 0,
+                    }}
+                    onChange={({ address, lat, lng }) =>
+                      setFormData({
+                        ...formData,
+                        address,
+                        latitude: lat ? String(lat) : '',
+                        longitude: lng ? String(lng) : '',
+                      })
                     }
-                    placeholder="e.g., 123 Main Street, Kelibia, Tunisia"
-                    className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
                   />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Latitude *
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.latitude}
-                      onChange={(e) =>
-                        setFormData({ ...formData, latitude: e.target.value })
-                      }
-                      placeholder="36.8578"
-                      step="any"
-                      className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Longitude *
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.longitude}
-                      onChange={(e) =>
-                        setFormData({ ...formData, longitude: e.target.value })
-                      }
-                      placeholder="11.0920"
-                      step="any"
-                      className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
-                  </div>
                 </div>
 
                 {/* AI Price Suggestion — stays category only, shown after address + coords are filled */}

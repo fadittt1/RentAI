@@ -1,4 +1,6 @@
-import { Controller, Post, Get, Patch, Delete, Body, Query, Param, Res, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Body, Query, Param, Res, UseGuards, UseInterceptors, UploadedFiles } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { EmbeddingService } from './embedding.service';
@@ -16,6 +18,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { ListingAssistantService } from './listing-assistant.service';
 import { AiSearchService } from './ai-search.service';
 import { PriceSuggestionService } from './price-suggestion.service';
+import { ImageClassifierService } from './image-classifier.service';
 import { PrismaService } from '../../database/prisma.service';
 import {
   GenerateListingDto,
@@ -36,6 +39,7 @@ export class AiController {
     private aiSearchService: AiSearchService,
     private priceSuggestionService: PriceSuggestionService,
     private embeddingService: EmbeddingService,
+    private imageClassifierService: ImageClassifierService,
     private prisma: PrismaService,
   ) {}
 
@@ -576,5 +580,49 @@ export class AiController {
     @Body() dto: PatchPriceSuggestionLogDto,
   ) {
     return this.priceSuggestionService.patchLog(id, dto.listingId, dto.finalPrice, dto.suggestedPrice);
+  }
+
+  // ─── Image category classifier ────────────────────────────────────────────
+  // Called client-side right after the host selects photos, before form submit.
+  // Returns the AI's category guess so the form can pre-fill the category field.
+
+  @Post('classify-images')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @UseInterceptors(
+    FilesInterceptor('images', 5, {
+      storage: memoryStorage(), // keep buffers in RAM — no disk write for this transient call
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        if (/^image\/(jpeg|jpg|png)$/.test(file.mimetype)) cb(null, true);
+        else cb(new Error('Only JPEG/PNG images are accepted') as any, false);
+      },
+    }),
+  )
+  @ApiOperation({
+    summary: 'Classify listing category from uploaded photos',
+    description:
+      'Accepts 1–5 images (multipart/form-data, field name "images") and returns the AI-detected category. ' +
+      'Call this right after the host selects images so the category field can be pre-filled. ' +
+      'confidence=0 means vision is unavailable — the frontend should not pre-fill in that case.',
+  })
+  @ApiResponse({
+    status: 201,
+    schema: {
+      type: 'object',
+      properties: {
+        categorySlug: { type: 'string', enum: ['stays', 'mobility', 'sports-facilities', 'beach-gear'] },
+        label:        { type: 'string', example: 'Séjour / Villa' },
+        icon:         { type: 'string', example: 'fa-house' },
+        confidence:   { type: 'number', example: 0.94 },
+        source:       { type: 'string', enum: ['vision', 'fallback'] },
+      },
+    },
+  })
+  async classifyImages(@UploadedFiles() files: Express.Multer.File[]) {
+    // Debug: log how many files + buffer size to confirm multer parsed them
+    const summary = (files ?? []).map(f => `${f.originalname}(${f.buffer?.length ?? 0}b)`).join(', ');
+    console.log(`[classifyImages] received ${files?.length ?? 0} file(s): ${summary || 'none'}`);
+    return this.imageClassifierService.classify(files ?? []);
   }
 }

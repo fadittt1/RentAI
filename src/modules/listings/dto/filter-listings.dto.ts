@@ -8,6 +8,7 @@ import {
   IsDateString,
   IsString,
   IsEnum,
+  IsArray,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
@@ -91,4 +92,10 @@ export class FilterListingsDto {
   @IsOptional()
   @IsEnum(SortBy)
   sortBy?: SortBy;
+
+  @ApiProperty({ required: false, type: [String], description: 'AND-filtered amenities (piscine, parking, …)' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  amenities?: string[];
 }

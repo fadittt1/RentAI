@@ -48,6 +48,9 @@ export class SearchFiltersDto {
   @ApiProperty({ required: false })
   radiusKm?: number;
 
+  @ApiProperty({ required: false, type: [String], description: 'AND-filtered amenities (piscine, parking, …)' })
+  amenities?: string[];
+
   // Set once the user has explicitly resolved location ("Près de moi" / "Peu importe" / a city).
   // Echoed back as previousFilters so subsequent turns skip the location follow-up.
   @ApiProperty({ required: false })
@@ -94,9 +97,9 @@ export class AiSearchRequestDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
-  @Max(50)
+  @Max(60)
   @Type(() => Number)
-  radiusKm?: number = 10;
+  radiusKm?: number = 60;
 
   @ApiProperty({
     description: 'Available category slugs within radius (optional)',

@@ -185,6 +185,69 @@ export class AiService {
     }
   }
 
+  // True when the configured provider supports image inputs.
+  // Groq's text models (llama-3.3-70b) don't support vision; OpenAI gpt-4o-mini and Gemini do.
+  supportsVision(): boolean {
+    const provider = this.configService.get<string>('AI_PROVIDER', 'openai').toLowerCase();
+    return provider === 'openai' || provider === 'gemini';
+  }
+
+  // Vision completion: send images as base64 data URLs alongside a text prompt.
+  // Only call this after checking supportsVision() === true.
+  async generateVisionCompletion(
+    prompt: string,
+    images: { data: Buffer; mimeType: string }[],
+    options: Pick<CompletionOptions, 'maxTokens' | 'temperature' | 'systemPrompt' | 'jsonMode'> = {},
+  ): Promise<string> {
+    if (!this.isEnabled || !this.client) throw new Error('AI not enabled');
+    if (!this.supportsVision()) throw new Error('Vision not supported by current AI provider');
+
+    const imageContent = images.slice(0, 3).map((img) => ({
+      type: 'image_url' as const,
+      image_url: {
+        url: `data:${img.mimeType};base64,${img.data.toString('base64')}`,
+      },
+    }));
+
+    const messages: any[] = [];
+    // Only add system message when explicitly provided — some providers (Gemini)
+    // reject a system role alongside multimodal user content.
+    if (options.systemPrompt) {
+      messages.push({ role: 'system', content: options.systemPrompt });
+    }
+    messages.push({
+      role: 'user',
+      content: [
+        ...imageContent,
+        { type: 'text', text: prompt },
+      ],
+    });
+
+    const requestParams: any = {
+      model: this.model,
+      messages,
+      max_tokens: options.maxTokens ?? 150,
+      temperature: options.temperature ?? 0,
+    };
+    // Never set response_format for vision — Gemini returns 400 when json_object
+    // is requested alongside image_url content. Parse JSON from text instead.
+
+    const abortController = new AbortController();
+    const timer = setTimeout(() => abortController.abort(), 12_000);
+    try {
+      const response = await this.client.chat.completions.create(requestParams, {
+        signal: abortController.signal,
+      });
+      clearTimeout(timer);
+      const content = response.choices[0]?.message?.content;
+      if (!content) throw new Error('Empty vision response');
+      return content.trim();
+    } catch (err) {
+      clearTimeout(timer);
+      throw err;
+    }
+  }
+
   estimateTokens(text: string): number {
     return Math.ceil(text.length / 4);
   }

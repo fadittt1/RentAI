@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { useEffect, useRef, useState } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useProfile } from '@/lib/api/hooks/useProfile';
@@ -11,6 +12,10 @@ import { LoadingCard } from '@/components/ui/LoadingCard';
 import { InlineError } from '@/components/ui/InlineError';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { toast } from '@/components/ui/Toaster';
+import { useDebounce } from '@/lib/utils/useDebounce';
+import { useUserLocation } from '@/lib/hooks/useUserLocation';
+import { UsersService } from '@/lib/api/generated/services/UsersService';
+import { geoSearch } from '@/lib/api/geo';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -20,6 +25,99 @@ export default function ProfilePage() {
   const verifyUserMutation = useVerifyUser();
   const bookingsQuery = useMyBookings();
   const reviewsQuery = useReviewsByUser(user?.id || query.data?.id);
+
+  // ── Saved home location ─────────────────────────────────────
+  const userLocation = useUserLocation();
+  const savedHomeCity = (user as any)?.homeCityName as string | undefined;
+  const hasSavedHome = !!(user as any)?.homeLat && !!(user as any)?.homeLng;
+
+  interface PlaceSuggestion { place_id: number; display_name: string; lat: string; lon: string; }
+  const [homeInput, setHomeInput] = useState('');
+  const [homeSuggestions, setHomeSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [homeShowSugg, setHomeShowSugg] = useState(false);
+  const [homeSelected, setHomeSelected] = useState<{ lat: number; lng: number; cityName: string } | null>(null);
+  const [homeSaving, setHomeSaving] = useState(false);
+  const homeInputRef = useRef<HTMLDivElement>(null);
+  const dHome = useDebounce(homeInput, 350);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (homeInputRef.current && !homeInputRef.current.contains(e.target as Node)) {
+        setHomeShowSugg(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  useEffect(() => {
+    if (dHome.length < 2 || homeSelected) { setHomeSuggestions([]); return; }
+    let cancelled = false;
+    geoSearch(dHome, { limit: 5, countryCode: 'tn' })
+      .then((data) => {
+        if (!cancelled) { setHomeSuggestions(data as PlaceSuggestion[]); setHomeShowSugg(data.length > 0); }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [dHome, homeSelected]);
+
+  const handleSaveCurrentAsHome = async () => {
+    if (userLocation.isDefault) {
+      toast({ title: 'No location detected', message: 'Allow GPS or pick a city below first.', variant: 'error' });
+      return;
+    }
+    setHomeSaving(true);
+    try {
+      await UsersService.usersControllerUpdateProfile({
+        homeLat: userLocation.lat,
+        homeLng: userLocation.lng,
+        homeCityName: userLocation.cityName,
+      } as any);
+      await refreshUser();
+      toast({ title: 'Home location saved', message: userLocation.cityName, variant: 'success' });
+    } catch {
+      toast({ title: 'Save failed', variant: 'error' });
+    } finally {
+      setHomeSaving(false);
+    }
+  };
+
+  const handleSavePickedHome = async () => {
+    if (!homeSelected) return;
+    setHomeSaving(true);
+    try {
+      await UsersService.usersControllerUpdateProfile({
+        homeLat: homeSelected.lat,
+        homeLng: homeSelected.lng,
+        homeCityName: homeSelected.cityName,
+      } as any);
+      await refreshUser();
+      setHomeInput('');
+      setHomeSelected(null);
+      toast({ title: 'Home location saved', message: homeSelected.cityName, variant: 'success' });
+    } catch {
+      toast({ title: 'Save failed', variant: 'error' });
+    } finally {
+      setHomeSaving(false);
+    }
+  };
+
+  const handleClearHome = async () => {
+    setHomeSaving(true);
+    try {
+      await UsersService.usersControllerUpdateProfile({
+        homeLat: null,
+        homeLng: null,
+        homeCityName: null,
+      } as any);
+      await refreshUser();
+      toast({ title: 'Home location cleared', variant: 'success' });
+    } catch {
+      toast({ title: 'Clear failed', variant: 'error' });
+    } finally {
+      setHomeSaving(false);
+    }
+  };
 
   const handleBecomeHost = async () => {
     try {
@@ -514,6 +612,145 @@ export default function ProfilePage() {
           </div>
         </section>
       )}
+
+      {/* Saved Home Location Section */}
+      <section id="home-location-section" className="bg-gray-50 py-12">
+        <div className="mx-auto max-w-7xl px-6">
+          <h2 className="mb-2 text-3xl font-bold text-gray-900">Home location</h2>
+          <p className="mb-6 text-gray-600">
+            Save a default city so we skip GPS detection on every visit.
+          </p>
+
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            {/* Current saved home */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-6">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">
+                Current saved home
+              </h3>
+              {hasSavedHome ? (
+                <>
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
+                      <i className="fa-solid fa-house text-blue-500 text-lg" />
+                    </div>
+                    <div>
+                      <p className="text-lg font-semibold text-gray-900">{savedHomeCity}</p>
+                      <p className="text-xs text-gray-400">
+                        {(user as any).homeLat?.toFixed(4)}, {(user as any).homeLng?.toFixed(4)}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleClearHome}
+                    disabled={homeSaving}
+                    className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+                  >
+                    <i className="fa-solid fa-trash mr-2" />
+                    Clear saved home
+                  </button>
+                </>
+              ) : (
+                <div className="text-gray-500">
+                  <p className="mb-1 text-sm">No saved home yet.</p>
+                  <p className="text-xs">
+                    Currently using <strong>{userLocation.cityName}</strong>
+                    {userLocation.isDefault ? ' (default)' : ' (detected)'}.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Set / change */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-6">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">
+                {hasSavedHome ? 'Change home' : 'Set home'}
+              </h3>
+
+              {/* Use current detected location */}
+              {!userLocation.isDefault && (
+                <button
+                  type="button"
+                  onClick={handleSaveCurrentAsHome}
+                  disabled={homeSaving}
+                  className="mb-4 flex w-full items-center justify-between rounded-lg border border-gray-200 px-4 py-3 text-left transition hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <span className="flex items-center gap-3">
+                    <i className="fa-solid fa-location-crosshairs text-blue-500" />
+                    <span>
+                      <span className="block text-sm font-semibold text-gray-900">Use current location</span>
+                      <span className="block text-xs text-gray-500">{userLocation.cityName}</span>
+                    </span>
+                  </span>
+                  <i className="fa-solid fa-arrow-right text-gray-400" />
+                </button>
+              )}
+
+              {/* Pick a city */}
+              <div className="relative" ref={homeInputRef}>
+                <label className="mb-1 block text-xs font-semibold text-gray-700">
+                  Or pick another Tunisian city
+                </label>
+                <div className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2">
+                  <i className="fa-solid fa-magnifying-glass text-gray-400 text-sm" />
+                  <input
+                    type="text"
+                    value={homeInput}
+                    onChange={(e) => { setHomeInput(e.target.value); setHomeSelected(null); }}
+                    onFocus={() => { if (homeSuggestions.length > 0) setHomeShowSugg(true); }}
+                    placeholder="Sfax, Sousse, Djerba…"
+                    className="w-full text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
+                  />
+                </div>
+
+                {homeShowSugg && homeSuggestions.length > 0 && (
+                  <ul className="absolute left-0 top-full z-20 mt-1 w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+                    {homeSuggestions.map((s) => {
+                      const parts = s.display_name.split(', ');
+                      const primary = parts[0];
+                      const secondary = parts.slice(1).join(', ');
+                      return (
+                        <li
+                          key={s.place_id}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setHomeInput(primary);
+                            setHomeSelected({
+                              lat: parseFloat(s.lat),
+                              lng: parseFloat(s.lon),
+                              cityName: primary,
+                            });
+                            setHomeSuggestions([]);
+                            setHomeShowSugg(false);
+                          }}
+                          className="flex cursor-pointer items-start gap-3 px-4 py-2.5 hover:bg-gray-50"
+                        >
+                          <i className="fa-solid fa-location-dot mt-0.5 shrink-0 text-gray-400 text-sm" />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium text-gray-900">{primary}</span>
+                            <span className="block truncate text-xs text-gray-400">{secondary}</span>
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+
+              {homeSelected && (
+                <button
+                  type="button"
+                  onClick={handleSavePickedHome}
+                  disabled={homeSaving}
+                  className="mt-4 w-full rounded-lg bg-blue-500 py-2 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:opacity-50"
+                >
+                  {homeSaving ? 'Saving…' : `Save ${homeSelected.cityName} as my home`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Verification & Trust Section */}
       <section id="verification-section" className="bg-white py-12">

@@ -4,6 +4,7 @@ import { ListingAssistantService } from './listing-assistant.service';
 import { AiSearchService } from './ai-search.service';
 import { PriceSuggestionService } from './price-suggestion.service';
 import { EmbeddingService } from './embedding.service';
+import { ImageClassifierService } from './image-classifier.service';
 import { AiController } from './ai.controller';
 import { ListingsModule } from '../listings/listings.module';
 import { CategoriesModule } from '../categories/categories.module';
@@ -11,7 +12,7 @@ import { CategoriesModule } from '../categories/categories.module';
 @Module({
   imports: [ListingsModule, CategoriesModule],
   controllers: [AiController],
-  providers: [AiService, ListingAssistantService, AiSearchService, PriceSuggestionService, EmbeddingService],
-  exports: [AiService, ListingAssistantService, AiSearchService, PriceSuggestionService, EmbeddingService],
+  providers: [AiService, ListingAssistantService, AiSearchService, PriceSuggestionService, EmbeddingService, ImageClassifierService],
+  exports: [AiService, ListingAssistantService, AiSearchService, PriceSuggestionService, EmbeddingService, ImageClassifierService],
 })
 export class AiModule {}

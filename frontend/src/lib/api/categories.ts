@@ -36,8 +36,7 @@ export async function fetchNearbyCategories(
     lng: number,
     radiusKm: number,
 ): Promise<NearbyCategory[]> {
-    // Clamp to valid backend range: 1–50 km
-    const safeRadius = Math.min(50, Math.max(1, radiusKm));
+    const safeRadius = Math.min(60, Math.max(1, radiusKm));
 
     const params = new URLSearchParams({
         lat: String(lat),

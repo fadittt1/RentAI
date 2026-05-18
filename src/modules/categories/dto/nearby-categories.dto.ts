@@ -36,15 +36,15 @@ export class NearbyCategoriesDto {
     example: 10,
     required: false,
     minimum: 0,
-    maximum: 50,
-    default: 10,
+    maximum: 60,
+    default: 60,
   })
   @IsOptional()
   @IsNumber()
   @Min(0)
-  @Max(50)
+  @Max(60)
   @Type(() => Number)
-  radiusKm?: number = 10;
+  radiusKm?: number = 60;
 
   @ApiProperty({
     description: 'Include categories with zero listings (default: false)',

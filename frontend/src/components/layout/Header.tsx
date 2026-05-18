@@ -5,11 +5,13 @@ import { CategoryStrip } from '@/components/shared/CategoryStrip';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useQuery } from '@tanstack/react-query';
 import { fetchUnreadCount } from '@/lib/api/chat';
+import { useUserLocation } from '@/lib/hooks/useUserLocation';
 
 export function Header() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const [isMounted, setIsMounted] = useState(false);
+  const { cityName, loading: locLoading, isDefault, fromSavedHome } = useUserLocation();
 
   useEffect(() => {
     setIsMounted(true);
@@ -62,12 +64,33 @@ export function Header() {
           <Link href="/demo/ai-search" className="text-sm font-bold text-purple-600 hover:text-purple-800">
             ✨ AI Demo
           </Link>
-          <Link href="/demo/categories" className="text-sm font-medium text-purple-600 hover:text-purple-800">
-            📍 Categories Demo
-          </Link>
         </nav>
 
         <div className="flex items-center gap-3">
+          {/* Active-location chip — click to change city on home page */}
+          {isMounted && !locLoading && (
+            <Link
+              href="/#search-bar"
+              title={
+                isDefault
+                  ? 'Click to set your location'
+                  : fromSavedHome
+                    ? `Using your saved home (${cityName})`
+                    : `Browsing near ${cityName}`
+              }
+              className={`hidden md:flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                isDefault
+                  ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                  : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <i className={`fa-solid ${fromSavedHome ? 'fa-house' : 'fa-location-dot'} text-xs ${isDefault ? 'text-amber-500' : 'text-blue-500'}`} />
+              <span className="max-w-[140px] truncate">{cityName}</span>
+              {isDefault && <span className="text-[10px] uppercase tracking-wide text-amber-600">default</span>}
+              {fromSavedHome && <span className="text-[10px] uppercase tracking-wide text-blue-500">home</span>}
+            </Link>
+          )}
+
           <Link
             href="/host/create"
             className="rounded-full px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"

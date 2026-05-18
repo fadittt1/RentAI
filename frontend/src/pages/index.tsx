@@ -1,16 +1,18 @@
 import Link from 'next/link';
 import { Layout } from '@/components/layout/Layout';
 import { useRouter } from 'next/router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useDebounce } from '@/lib/utils/useDebounce';
 import { useListings } from '@/lib/api/hooks/useListings';
 import { useCategoriesNearby } from '@/lib/api/hooks/useCategoriesNearby';
+import { useUserLocation } from '@/lib/hooks/useUserLocation';
 import { ListingCard } from '@/components/shared/ListingCard';
 import { LoadingCard } from '@/components/ui/LoadingCard';
 import { InlineError } from '@/components/ui/InlineError';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatTnd } from '@/lib/utils/format';
 import ListingMap from '@/components/shared/ListingMap';
+import { CityPicker } from '@/components/shared/CityPicker';
 
 const CATEGORY_META: Record<string, { icon: string; colorBg: string; colorIcon: string; colorHover: string; subtitle: string }> = {
   'stays':             { icon: 'fa-house',   colorBg: 'bg-blue-100',   colorIcon: 'text-blue-500',   colorHover: 'group-hover:bg-blue-500',   subtitle: 'Houses & Villas' },
@@ -19,28 +21,38 @@ const CATEGORY_META: Record<string, { icon: string; colorBg: string; colorIcon: 
   'beach-gear':        { icon: 'fa-water',   colorBg: 'bg-orange-100', colorIcon: 'text-orange-500', colorHover: 'group-hover:bg-orange-500', subtitle: 'Paddle, Kayak & More' },
 };
 
-const DEFAULT_LAT = 36.8578;
-const DEFAULT_LNG = 11.092;
-const DEFAULT_RADIUS = 10;
+const RADIUS_KM = 60;
 
 export default function HomePage() {
   const router = useRouter();
   const { push } = router;
   const [q, setQ] = useState('');
-  const [where, setWhere] = useState('Tunis, Tunisia');
   const dq = useDebounce(q, 350);
 
+  const { lat, lng, cityName, loading: locLoading, isDefault, permissionDenied, fromSavedHome, requestLocation } = useUserLocation();
+
+  // "Where" field — syncs to detected city, user can override via autocomplete
+  const [where, setWhere] = useState('');
+  const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  // Keep "Where" field in sync with detected city name
+  useEffect(() => {
+    if (!locLoading && cityName) { setWhere(cityName); setSelectedCoords(null); }
+  }, [locLoading, cityName]);
+
   const { data: nearbyCategories, isLoading: catsLoading } = useCategoriesNearby({
-    lat: DEFAULT_LAT,
-    lng: DEFAULT_LNG,
-    radiusKm: DEFAULT_RADIUS,
+    lat,
+    lng,
+    radiusKm: RADIUS_KM,
+    enabled: !locLoading,
   });
 
   const { data, isLoading, isError } = useListings({
     q: dq || undefined,
-    lat: 36.8578,
-    lng: 11.092,
-    radiusKm: 10,
+    lat,
+    lng,
+    radiusKm: RADIUS_KM,
     limit: 12,
     sortBy: 'distance',
   });
@@ -82,30 +94,57 @@ export default function HomePage() {
                   <label className="mb-1 block text-xs font-semibold text-gray-700">
                     Where
                   </label>
-                  <div className="flex items-center">
-                    <i className="fa-solid fa-location-dot text-blue-500 mr-2"></i>
-                    <input
-                      type="text"
-                      value={where}
-                      onChange={(e) => setWhere(e.target.value)}
-                      placeholder="Tunis, Tunisia"
-                      className="w-full text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
-                    />
-                  </div>
+                  <CityPicker
+                    value={locLoading ? '' : where}
+                    onChange={(v) => { setWhere(v); setSelectedCoords(null); }}
+                    onPick={({ cityName: c, lat: la, lng: lo }) => {
+                      setWhere(c);
+                      setSelectedCoords({ lat: la, lng: lo });
+                    }}
+                    placeholder={locLoading ? 'Detecting location…' : 'City or area'}
+                    disabled={locLoading}
+                    leadingIcon={
+                      locLoading ? (
+                        <i className="fa-solid fa-location-dot text-blue-400 animate-pulse shrink-0"></i>
+                      ) : isDefault ? (
+                        <button
+                          type="button"
+                          onClick={requestLocation}
+                          title="Use my location"
+                          className="shrink-0 text-gray-400 hover:text-blue-500 transition"
+                        >
+                          <i className="fa-solid fa-location-crosshairs text-base"></i>
+                        </button>
+                      ) : fromSavedHome ? (
+                        <button
+                          type="button"
+                          onClick={requestLocation}
+                          title="Override saved home — use my current GPS"
+                          className="shrink-0 text-blue-500 hover:text-blue-700 transition"
+                        >
+                          <i className="fa-solid fa-house text-base"></i>
+                        </button>
+                      ) : (
+                        <i className="fa-solid fa-location-dot text-blue-500 shrink-0"></i>
+                      )
+                    }
+                  />
                 </div>
 
                 <div className="flex items-center px-4">
                   <button
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
                       push({
                         pathname: '/search',
                         query: {
                           q: dq || q || undefined,
-                          where: where || undefined,
+                          lat: selectedCoords?.lat ?? lat,
+                          lng: selectedCoords?.lng ?? lng,
+                          radiusKm: RADIUS_KM,
                         },
-                      })
-                    }
+                      });
+                    }}
                     className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-500 text-white shadow-md transition hover:bg-blue-600"
                   >
                     <i className="fa-solid fa-search text-lg"></i>
@@ -114,34 +153,52 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div className="mt-4 flex items-center justify-center space-x-4">
-              <button
-                type="button"
-                onClick={() =>
-                  push({
-                    pathname: '/search',
-                    query: { lat: 36.8578, lng: 11.092, radiusKm: 10 },
-                  })
-                }
-                className="flex items-center text-sm text-gray-600 transition hover:text-gray-900"
-              >
-                <i className="fa-solid fa-location-crosshairs mr-2 text-blue-500"></i>
-                Use my current location
-              </button>
-            </div>
+            {/* Fallback banner — shown when location couldn't be detected */}
+            {!locLoading && isDefault && !bannerDismissed && (
+              <div className="mt-3 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <i className="fa-solid fa-location-crosshairs text-amber-500 shrink-0 text-base mt-0.5" />
+                <span className="flex-1">
+                  {permissionDenied ? (
+                    <>
+                      Location access is <strong>blocked</strong> in your browser.
+                      Click the <strong>🔒 lock icon</strong> in the address bar → <em>Site settings</em> → set <strong>Location</strong> to <em>Allow</em>, then refresh.
+                    </>
+                  ) : (
+                    <>Showing results near <strong>Tunis</strong> (default).</>
+                  )}
+                </span>
+                {!permissionDenied && (
+                  <button
+                    onClick={requestLocation}
+                    className="shrink-0 flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 transition"
+                  >
+                    <i className="fa-solid fa-location-dot" />
+                    Use my location
+                  </button>
+                )}
+                <button
+                  onClick={() => setBannerDismissed(true)}
+                  className="shrink-0 text-amber-400 hover:text-amber-700 mt-0.5"
+                >
+                  <i className="fa-solid fa-xmark" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </section>
 
-      {/* Categories Section — dynamic from /api/categories/nearby */}
+      {/* Categories Section */}
       <section id="categories" className="bg-gray-50 py-8">
         <div className="mx-auto max-w-7xl px-6">
           <h2 className="mb-6 text-2xl font-bold text-gray-900">
-            Popular categories in Tunis
+            {locLoading
+              ? 'Popular categories nearby'
+              : `Popular categories in ${cityName}`}
           </h2>
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            {catsLoading
+            {catsLoading || locLoading
               ? Array.from({ length: 4 }).map((_, i) => (
                   <div
                     key={i}
@@ -163,7 +220,7 @@ export default function HomePage() {
                   return (
                     <Link
                       key={cat.id}
-                      href={`/search?categorySlug=${cat.slug}`}
+                      href={`/search?categorySlug=${cat.slug}&lat=${lat}&lng=${lng}&radiusKm=${RADIUS_KM}`}
                       className="group cursor-pointer rounded-xl border border-gray-200 bg-white p-6 transition hover:shadow-lg"
                     >
                       <div
@@ -199,7 +256,7 @@ export default function HomePage() {
               Available nearby
             </h2>
             <Link
-              href="/map"
+              href={`/map?lat=${lat}&lng=${lng}&radiusKm=${RADIUS_KM}`}
               className="flex items-center font-medium text-blue-500 transition hover:text-blue-600"
             >
               View full map
@@ -213,8 +270,8 @@ export default function HomePage() {
           >
             <ListingMap
               listings={data?.items ?? []}
-              center={[DEFAULT_LAT, DEFAULT_LNG]}
-              zoom={12}
+              center={[lat, lng]}
+              zoom={locLoading ? 12 : isDefault ? 12 : 11}
               height="400px"
             />
           </div>
@@ -226,17 +283,17 @@ export default function HomePage() {
         <div className="mx-auto max-w-7xl px-6">
           <div className="mb-6 flex items-center justify-between">
             <h2 className="text-2xl font-bold text-gray-900">
-              Recommended for you
+              {locLoading ? 'Recommended for you' : `Rentals near ${cityName}`}
             </h2>
             <Link
-              href="/search"
+              href={`/search?lat=${lat}&lng=${lng}&radiusKm=${RADIUS_KM}`}
               className="font-medium text-blue-500 transition hover:text-blue-600"
             >
               View all
             </Link>
           </div>
 
-          {isLoading ? (
+          {isLoading || locLoading ? (
             <div className="grid grid-cols-4 gap-6">
               {Array.from({ length: 4 }).map((_, i) => (
                 <LoadingCard key={i} />
@@ -291,7 +348,7 @@ export default function HomePage() {
                       </div>
                     </div>
                     <p className="mb-2 text-sm text-gray-600">
-                      {listing.address?.split(',')[0] || 'Tunis'}
+                      {listing.address?.split(',')[0] || cityName}
                     </p>
                     <p className="mb-3 text-sm text-gray-500">
                       {listing.category?.name || 'Item'}
@@ -309,9 +366,13 @@ export default function HomePage() {
           ) : (
             <EmptyState
               icon="fa-solid fa-magnifying-glass"
-              title="No listings found"
-              message="Try a different search or broaden the area."
-              cta={{ label: 'Browse all', href: '/search' }}
+              title={isDefault ? "We don't know where you are yet" : 'No listings found nearby'}
+              message={
+                isDefault
+                  ? 'Set your location to see nearby rentals, or browse everything.'
+                  : `No rentals found within ${RADIUS_KM}km of ${cityName}. Try browsing all listings.`
+              }
+              cta={{ label: isDefault ? 'Browse all' : 'Browse all', href: '/search' }}
             />
           )}
         </div>

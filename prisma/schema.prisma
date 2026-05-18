@@ -31,6 +31,9 @@ model User {
   suspendedAt     DateTime? @map("suspended_at")
   trustReviewedAt DateTime? @map("trust_reviewed_at")
   manualTrustTier String?   @map("manual_trust_tier") @db.VarChar(50)
+  homeLat         Float?    @map("home_lat")
+  homeLng         Float?    @map("home_lng")
+  homeCityName    String?   @map("home_city_name") @db.VarChar(255)
 
   // Relations
   listings               Listing[]
@@ -136,13 +139,15 @@ model Listing {
   isActive     Boolean                              @default(true)
   status       ListingStatus                        @default(PENDING_REVIEW)
   bookingType  BookingType                          @default(DAILY)
-  nearBeach      Boolean?                           @map("near_beach")
-  propertyType   String?                            @map("property_type") @db.VarChar(50)
-  guestsCapacity Int?                               @map("guests_capacity")
-  bedrooms       Int?                               @map("bedrooms")
-  deletedAt    DateTime?
-  createdAt    DateTime                             @default(now())
-  updatedAt    DateTime                             @updatedAt
+  nearBeach       Boolean?                          @map("near_beach")
+  propertyType    String?                           @map("property_type") @db.VarChar(50)
+  guestsCapacity  Int?                              @map("guests_capacity")
+  bedrooms        Int?                              @map("bedrooms")
+  ratingAvg       Float                             @default(0) @map("rating_avg")
+  bookingCount30d Int                               @default(0) @map("booking_count_30d")
+  deletedAt     DateTime?
+  createdAt     DateTime                            @default(now())
+  updatedAt     DateTime                            @updatedAt
 
   // Relations
   host              User               @relation(fields: [hostId], references: [id])

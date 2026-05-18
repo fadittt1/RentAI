@@ -3,6 +3,8 @@ import { useRouter } from 'next/router';
 import { useState, useEffect, useRef } from 'react';
 import { ListingCard } from '@/components/shared/ListingCard';
 import { LoadingCard } from '@/components/ui/LoadingCard';
+import { useUserLocation } from '@/lib/hooks/useUserLocation';
+import { CityPicker } from '@/components/shared/CityPicker';
 
 const HISTORY_KEY = 'rentai_search_history';
 const MAX_HISTORY = 5;
@@ -21,9 +23,7 @@ function clearHistory() {
 }
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-const DEFAULT_LAT = 36.8578;
-const DEFAULT_LNG = 11.092;
-const DEFAULT_RADIUS = 20;
+const DEFAULT_RADIUS = 60;
 
 type AiMode = 'idle' | 'loading' | 'follow_up' | 'result' | 'error';
 interface Chip { key: string; label: string; }
@@ -109,6 +109,34 @@ export default function SearchPage() {
   const urlCategorySlug = typeof router.query.categorySlug === 'string' ? router.query.categorySlug : '';
   const urlCategory     = typeof router.query.category     === 'string' ? router.query.category     : '';
 
+  // URL params take precedence over auto-detected location (e.g. when navigating from homepage)
+  const urlLat    = typeof router.query.lat      === 'string' ? parseFloat(router.query.lat)      : undefined;
+  const urlLng    = typeof router.query.lng      === 'string' ? parseFloat(router.query.lng)      : undefined;
+  const urlRadius = typeof router.query.radiusKm === 'string' ? parseFloat(router.query.radiusKm) : undefined;
+
+  const { lat: hookLat, lng: hookLng, cityName: hookCityName } = useUserLocation();
+
+  const searchLat    = (urlLat    !== undefined && !isNaN(urlLat))    ? urlLat    : hookLat;
+  const searchLng    = (urlLng    !== undefined && !isNaN(urlLng))    ? urlLng    : hookLng;
+  const searchRadius = (urlRadius !== undefined && !isNaN(urlRadius)) ? urlRadius : DEFAULT_RADIUS;
+
+  // Display name for the active search city — defaults to user's detected city, overridden when picker chooses one
+  const [cityDisplay, setCityDisplay] = useState(hookCityName);
+  useEffect(() => { setCityDisplay(hookCityName); }, [hookCityName]);
+
+  function pushNewLocation(picked: { lat: number; lng: number; cityName: string }) {
+    setCityDisplay(picked.cityName);
+    void router.push({
+      pathname: '/search',
+      query: {
+        ...router.query,
+        lat: picked.lat,
+        lng: picked.lng,
+        radiusKm: searchRadius,
+      },
+    }, undefined, { shallow: false });
+  }
+
   const [inputQ, setInputQ]                   = useState(urlQ);
   const [aiMode, setAiMode]                   = useState<AiMode>('idle');
   const [chips, setChips]                     = useState<Chip[]>([]);
@@ -143,13 +171,13 @@ export default function SearchPage() {
     fetchListings({
       categorySlug: urlCategorySlug || undefined,
       category:     urlCategory     || undefined,
-      lat: DEFAULT_LAT, lng: DEFAULT_LNG, radiusKm: DEFAULT_RADIUS, limit: 30,
+      lat: searchLat, lng: searchLng, radiusKm: searchRadius, limit: 30,
     })
       .then(setFallbackResults)
       .catch(() => setFallbackResults([]))
       .finally(() => setFallbackLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router.isReady, urlCategorySlug, urlCategory]);
+  }, [router.isReady, urlCategorySlug, urlCategory, searchLat, searchLng, searchRadius]);
 
   // Auto-run on ?q=
   useEffect(() => {
@@ -170,8 +198,8 @@ export default function SearchPage() {
     setLastQuery(query);
     try {
       const body: Record<string, any> = {
-        query, lat: DEFAULT_LAT, lng: DEFAULT_LNG,
-        radiusKm: DEFAULT_RADIUS, followUpUsed, followUpAnswer: followUpAns || '',
+        query, lat: searchLat, lng: searchLng,
+        radiusKm: searchRadius, followUpUsed, followUpAnswer: followUpAns || '',
       };
       if (previousFilters && Object.keys(previousFilters).length > 0) {
         body.previousFilters = previousFilters;
@@ -198,7 +226,7 @@ export default function SearchPage() {
         setAiMode('follow_up');
         // Pre-load background results for preview behind the follow-up card
         if (fallbackResults.length === 0) {
-          fetchListings({ q: query, lat: DEFAULT_LAT, lng: DEFAULT_LNG, radiusKm: DEFAULT_RADIUS, limit: 3 })
+          fetchListings({ q: query, lat: searchLat, lng: searchLng, radiusKm: searchRadius, limit: 3 })
             .then(setFallbackResults).catch(() => {});
         }
       } else {
@@ -212,7 +240,7 @@ export default function SearchPage() {
     } catch {
       setAiMode('error');
       setFallbackLoading(true);
-      fetchListings({ q: query, lat: DEFAULT_LAT, lng: DEFAULT_LNG, radiusKm: DEFAULT_RADIUS, limit: 30 })
+      fetchListings({ q: query, lat: searchLat, lng: searchLng, radiusKm: searchRadius, limit: 30 })
         .then(setFallbackResults)
         .catch(() => setFallbackResults([]))
         .finally(() => setFallbackLoading(false));
@@ -305,6 +333,24 @@ export default function SearchPage() {
             </p>
           </div>
         )}
+
+        {/* ── Location row ───────────────────────────────────── */}
+        <div className="mb-3 flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-5 py-3 shadow-sm">
+          <i className="fa-solid fa-location-dot text-blue-500 shrink-0" />
+          <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Near
+          </span>
+          <div className="flex-1">
+            <CityPicker
+              value={cityDisplay}
+              onChange={setCityDisplay}
+              onPick={pushNewLocation}
+              placeholder="City or area"
+              inputClassName="py-1"
+            />
+          </div>
+          <span className="shrink-0 text-xs text-gray-400">within {searchRadius} km</span>
+        </div>
 
         {/* ── Search box ─────────────────────────────────────── */}
         <form onSubmit={handleSubmit} className="relative mb-5">

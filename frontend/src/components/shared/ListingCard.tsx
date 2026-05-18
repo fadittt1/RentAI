@@ -60,6 +60,12 @@ export function ListingCard({ listing, matchFilters }: { listing: Listing & { ma
     listing.address ||
     'Kelibia';
 
+  const distanceLabel = listing.distance != null
+    ? listing.distance < 1000
+      ? `${Math.round(listing.distance)} m away`
+      : `${(listing.distance / 1000).toFixed(1)} km away`
+    : null;
+
   return (
     <div className="relative group overflow-hidden rounded-2xl border border-border bg-white shadow-sm transition hover:shadow-md">
       <div className="absolute top-3 right-3 z-20">
@@ -110,7 +116,18 @@ export function ListingCard({ listing, matchFilters }: { listing: Listing & { ma
             <div className="text-sm font-semibold text-slate-900 group-hover:text-primary">
               {listing.title}
             </div>
-            <div className="mt-1 text-xs text-slate-500">{city}</div>
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+              <span>{city}</span>
+              {distanceLabel && (
+                <>
+                  <span className="text-slate-300">·</span>
+                  <span className="flex items-center gap-1 text-blue-500 font-medium">
+                    <i className="fa-solid fa-location-dot text-[9px]" />
+                    {distanceLabel}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
           <div className="text-right">
             <div className="text-sm font-bold text-slate-900">

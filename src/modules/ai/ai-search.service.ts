@@ -623,13 +623,16 @@ Rules:
       }
     }
 
-    const { results, relaxedConstraints } = await this.fetchListings(filters, dto.lat, dto.lng);
+    const { results: rawResults, relaxedConstraints } = await this.fetchListings(filters, dto.lat, dto.lng);
 
     // Strip relaxed constraints from the returned filters so chips reflect reality.
     const effectiveFilters: SearchFiltersDto = { ...filters };
     if (relaxedConstraints.includes('price'))  { delete effectiveFilters.minPrice; delete effectiveFilters.maxPrice; }
     if (relaxedConstraints.includes('dates'))  { delete effectiveFilters.availableFrom; delete effectiveFilters.availableTo; }
     if (relaxedConstraints.includes('radius')) effectiveFilters.radiusKm = Math.min(200, (filters.radiusKm ?? 20) * 4);
+
+    // Re-rank by blended quality signal (ts_rank × 0.55 + listing rating × 0.30 + popularity × 0.15)
+    const results = this.rerankWithQuality(rawResults, !!filters.q);
 
     // Attach per-result match explanations ("why is this here?").
     const annotated = results.map(r => ({ ...r, matches: this.explainMatch(r, effectiveFilters) }));
@@ -662,6 +665,12 @@ Rules:
     if (filters.q) {
       const syns = expandSynonyms(filters.q).map(s => s.toLowerCase());
       if (syns.some(s => text.includes(s))) matches.push(`Correspond à "${filters.q}"`);
+    }
+    if (filters.amenities?.length) {
+      for (const a of filters.amenities) {
+        if (text.includes(a.toLowerCase()))
+          matches.push(`Avec ${a.toLowerCase()}`);
+      }
     }
     if (filters.nearSea && /\b(mer|plage|beach|sea|c[oô]te|bord)\b|baignade/i.test(text)) {
       matches.push('Bord de mer');
@@ -819,6 +828,7 @@ Rules:
         ? `dates ${filters.availableFrom} → ${filters.availableTo}`
         : `date ${filters.availableFrom}`);
     }
+    if (filters.amenities?.length) parts.push(`équipements: ${filters.amenities.join(', ')}`);
     if (filters.bookingType) parts.push(`type ${filters.bookingType === 'SLOT' ? 'créneau' : 'journée'}`);
     return parts.length
       ? `Compris depuis "${query}": ${parts.join(', ')}.`
@@ -945,7 +955,8 @@ Rules:
       availableTo:   nlu.availableTo   ?? undefined,
       sortBy:        nlu.sortPreference ?? 'distance',
       radiusKm,
-      q:             nlu.searchKeyword ?? (nlu.amenities.length ? nlu.amenities.join(' ') : undefined),
+      q:             nlu.searchKeyword ?? undefined,
+      amenities:     nlu.amenities.length ? nlu.amenities : undefined,
       locationConfirmed: locationConfirmed || undefined,
     };
   }
@@ -956,6 +967,10 @@ Rules:
       chips.push({ key: 'category', label: CATEGORY_LABELS[filters.categorySlug] ?? filters.categorySlug });
     if (filters.q && filters.categorySlug)
       chips.push({ key: 'item', label: filters.q.charAt(0).toUpperCase() + filters.q.slice(1) });
+    if (filters.amenities?.length) {
+      for (const a of filters.amenities)
+        chips.push({ key: 'amenity', label: a.charAt(0).toUpperCase() + a.slice(1) });
+    }
     if (filters.city)
       chips.push({ key: 'city', label: filters.city.charAt(0).toUpperCase() + filters.city.slice(1) });
     if (filters.nearSea)
@@ -1016,6 +1031,7 @@ Rules:
       ...(filters.sortBy           && { sortBy: filters.sortBy }),
       ...(lat != null              && { lat }),
       ...(lng != null              && { lng }),
+      ...(filters.amenities?.length && { amenities: filters.amenities }),
       radiusKm: filters.radiusKm ?? 20,
       limit: 30,
     };
@@ -1154,5 +1170,36 @@ Rules:
       const now = Date.now();
       for (const [k, v] of this.cache) { if (now > v.expiresAt) this.cache.delete(k); }
     }
+  }
+
+  // ─── Quality re-ranker ────────────────────────────────────────────────────
+  // Blends DB-computed ts_rank (text relevance) with listing-level quality
+  // signals so highly-rated, recently-booked listings surface above equal-text matches.
+  // Only applies meaningful reordering when there's a text query; otherwise
+  // preserves the DB ordering (distance / recency).
+  private rerankWithQuality(results: any[], hasQuery: boolean): any[] {
+    if (results.length <= 1) return results;
+
+    const maxTsvRank    = Math.max(1e-6, ...results.map((r) => r.tsvRank ?? 0));
+    const maxBookings   = Math.max(1,    ...results.map((r) => r.bookingCount30d ?? 0));
+
+    const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+    const scored = results.map((r, i) => {
+      // ts_rank already encodes text relevance; normalise to 0–1.
+      const textScore = hasQuery
+        ? clamp01((r.tsvRank ?? 0) / maxTsvRank)
+        : clamp01(1 - i / results.length); // preserve DB position when no query
+
+      const ratingScore     = clamp01((r.ratingAvg ?? 0) / 5);
+      const popularityScore = clamp01((r.bookingCount30d ?? 0) / maxBookings);
+      const photoScore      = clamp01((r.images?.length ?? 0) / 5);
+
+      // Weights: text relevance 55%, listing rating 25%, popularity 10%, photo count 10%
+      const score = 0.55 * textScore + 0.25 * ratingScore + 0.10 * popularityScore + 0.10 * photoScore;
+      return { r, score };
+    });
+
+    return scored.sort((a, b) => b.score - a.score).map((s) => s.r);
   }
 }
