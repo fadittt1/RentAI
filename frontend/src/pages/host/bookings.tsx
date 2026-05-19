@@ -11,6 +11,7 @@ import { formatTnd } from '@/lib/utils/format';
 import { LoadingCard } from '@/components/ui/LoadingCard';
 import { InlineError } from '@/components/ui/InlineError';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { toast } from '@/components/ui/Toaster';
 
 export default function HostBookingsPage() {
   const router = useRouter();
@@ -20,6 +21,47 @@ export default function HostBookingsPage() {
   const confirm = useConfirmBooking();
   const reject = useRejectBooking();
   const [creatingFor, setCreatingFor] = useState<string | null>(null);
+
+  const errorMessage = (e: any): string => {
+    const body = e?.body ?? e?.response?.data;
+    const msg = body?.error?.message ?? body?.message ?? e?.message;
+    if (Array.isArray(msg)) return msg.join(', ');
+    return msg ? String(msg) : 'Please try again.';
+  };
+
+  const handleAccept = async (id: string) => {
+    try {
+      await confirm.mutateAsync(id);
+      toast({
+        title: 'Booking accepted',
+        message: 'The renter can now pay to confirm the dates.',
+        variant: 'success',
+      });
+    } catch (e: any) {
+      toast({
+        title: 'Could not accept booking',
+        message: errorMessage(e),
+        variant: 'error',
+      });
+    }
+  };
+
+  const handleReject = async (id: string) => {
+    try {
+      await reject.mutateAsync(id);
+      toast({
+        title: 'Booking declined',
+        message: 'The renter has been notified.',
+        variant: 'info',
+      });
+    } catch (e: any) {
+      toast({
+        title: 'Could not decline booking',
+        message: errorMessage(e),
+        variant: 'error',
+      });
+    }
+  };
 
   /** Navigate to the conversation thread, creating one if needed */
   const goToChat = async (b: any) => {
@@ -156,14 +198,14 @@ export default function HostBookingsPage() {
                       <div className="flex items-center space-x-3 mt-6 pt-4 border-t border-gray-200">
                         <button
                           className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded-lg text-sm font-medium transition disabled:opacity-60"
-                          onClick={() => confirm.mutate(b.id)}
+                          onClick={() => void handleAccept(b.id)}
                           disabled={confirm.isPending}
                         >
                           {confirm.isPending ? 'Accepting…' : 'Accept booking'}
                         </button>
                         <button
                           className="flex-1 border border-red-300 hover:bg-red-50 text-red-600 py-2 rounded-lg text-sm font-medium transition disabled:opacity-60"
-                          onClick={() => reject.mutate(b.id)}
+                          onClick={() => void handleReject(b.id)}
                           disabled={reject.isPending}
                         >
                           {reject.isPending ? 'Declining…' : 'Decline'}

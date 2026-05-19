@@ -18,7 +18,9 @@ model User {
   name            String    @db.VarChar(255)
   email           String?   @unique @db.VarChar(255)
   phone           String?   @unique @db.VarChar(20)
-  passwordHash    String    @map("password_hash") @db.VarChar(255)
+  // Nullable because OAuth-only users (Google etc.) never set a local password
+  passwordHash    String?   @map("password_hash") @db.VarChar(255)
+  googleId        String?   @unique @map("google_id") @db.VarChar(255)
   avatarUrl       String?   @db.VarChar(500)
   roles           String[]  @default(["user"])
   isHost          Boolean   @default(false)
@@ -55,6 +57,7 @@ model User {
   payoutsAsHost              Payout[]                    @relation("HostPayouts")
   categoryRequests           CategoryRequest[]           @relation("RequesterCategoryRequests")
   wallet                     Wallet?
+  verificationCodes          VerificationCode[]          @relation("UserVerificationCodes")
 
   @@index([email])
   @@index([phone])
@@ -663,6 +666,29 @@ model Wallet {
   transactions WalletTransaction[]
 
   @@map("wallets")
+}
+
+enum VerificationChannel {
+  EMAIL
+  PHONE
+}
+
+model VerificationCode {
+  id          String              @id @default(uuid())
+  userId      String              @map("user_id")
+  channel     VerificationChannel
+  destination String              @db.VarChar(255)
+  codeHash    String              @map("code_hash") @db.VarChar(255)
+  expiresAt   DateTime            @map("expires_at")
+  consumedAt  DateTime?           @map("consumed_at")
+  attempts    Int                 @default(0)
+  createdAt   DateTime            @default(now()) @map("created_at")
+
+  user User @relation("UserVerificationCodes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, channel])
+  @@index([expiresAt])
+  @@map("verification_codes")
 }
 
 model WalletTransaction {

@@ -6,12 +6,15 @@ import { useAuth } from '@/lib/auth/AuthProvider';
 import { useQuery } from '@tanstack/react-query';
 import { fetchUnreadCount } from '@/lib/api/chat';
 import { useUserLocation } from '@/lib/hooks/useUserLocation';
+import { useHostMode } from '@/lib/hooks/useHostMode';
 
 export function Header() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const [isMounted, setIsMounted] = useState(false);
   const { cityName, loading: locLoading, isDefault, fromSavedHome } = useUserLocation();
+  const { mode, setMode, canSwitch } = useHostMode();
+  const isHostMode = canSwitch && mode === 'host';
 
   useEffect(() => {
     setIsMounted(true);
@@ -42,28 +45,70 @@ export function Header() {
         </Link>
 
         <nav className="hidden items-center gap-4 md:flex">
-          <Link
-            href="/search"
-            className="text-sm font-medium text-slate-700 hover:text-slate-900"
-          >
-            {router.locale === 'ar' ? 'بحث' : 'Search'}
-          </Link>
-          <Link
-            href="/map"
-            className="text-sm font-medium text-slate-700 hover:text-slate-900"
-          >
-            {router.locale === 'ar' ? 'الخريطة' : 'Map'}
-          </Link>
-          <Link
-            href="/help"
-            className="text-sm font-medium text-slate-700 hover:text-slate-900"
-          >
-            {router.locale === 'ar' ? 'مساعدة' : 'Help'}
-          </Link>
-          <div className="mx-2 h-4 w-px bg-slate-300"></div>
-          <Link href="/demo/ai-search" className="text-sm font-bold text-purple-600 hover:text-purple-800">
-            ✨ AI Demo
-          </Link>
+          {isHostMode ? (
+            <>
+              <Link
+                href="/host/dashboard"
+                className={`text-sm font-medium hover:text-slate-900 ${
+                  router.pathname === '/host/dashboard' ? 'text-slate-900' : 'text-slate-700'
+                }`}
+              >
+                Dashboard
+              </Link>
+              <Link
+                href="/host/listings"
+                className={`text-sm font-medium hover:text-slate-900 ${
+                  router.pathname.startsWith('/host/listings') ? 'text-slate-900' : 'text-slate-700'
+                }`}
+              >
+                My listings
+              </Link>
+              <Link
+                href="/host/bookings"
+                className={`text-sm font-medium hover:text-slate-900 ${
+                  router.pathname === '/host/bookings' ? 'text-slate-900' : 'text-slate-700'
+                }`}
+              >
+                Bookings
+              </Link>
+              <Link
+                href="/host/create"
+                className="rounded-full bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+              >
+                <i className="fa-solid fa-plus mr-1 text-xs" />
+                New listing
+              </Link>
+            </>
+          ) : (
+            <>
+              <Link
+                href="/search"
+                className={`text-sm font-medium hover:text-slate-900 ${
+                  router.pathname === '/search' ? 'text-slate-900' : 'text-slate-700'
+                }`}
+              >
+                {router.locale === 'ar' ? 'بحث' : 'Search'}
+              </Link>
+              <Link
+                href="/map"
+                className={`text-sm font-medium hover:text-slate-900 ${
+                  router.pathname === '/map' ? 'text-slate-900' : 'text-slate-700'
+                }`}
+              >
+                {router.locale === 'ar' ? 'الخريطة' : 'Map'}
+              </Link>
+              <Link
+                href="/help"
+                className="text-sm font-medium text-slate-700 hover:text-slate-900"
+              >
+                {router.locale === 'ar' ? 'مساعدة' : 'Help'}
+              </Link>
+              <div className="mx-2 h-4 w-px bg-slate-300"></div>
+              <Link href="/demo/ai-search" className="text-sm font-bold text-purple-600 hover:text-purple-800">
+                ✨ AI Demo
+              </Link>
+            </>
+          )}
         </nav>
 
         <div className="flex items-center gap-3">
@@ -91,12 +136,49 @@ export function Header() {
             </Link>
           )}
 
-          <Link
-            href="/host/create"
-            className="rounded-full px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-          >
-            {router.locale === 'ar' ? 'كن مضيفاً' : 'Become a host'}
-          </Link>
+          {canSwitch ? (
+            // Mode toggle for hosts — switches the entire UI context
+            <div
+              className="hidden md:flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1"
+              role="group"
+              aria-label="Switch between renter and host mode"
+            >
+              <button
+                type="button"
+                onClick={() => setMode('rent')}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                  mode === 'rent'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+                aria-pressed={mode === 'rent'}
+              >
+                <i className="fa-solid fa-bag-shopping mr-1 text-[10px]" />
+                Renting
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('host')}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                  mode === 'host'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+                aria-pressed={mode === 'host'}
+              >
+                <i className="fa-solid fa-house-chimney mr-1 text-[10px]" />
+                Hosting
+              </button>
+            </div>
+          ) : (
+            // Non-hosts see the "Become a host" CTA
+            <Link
+              href={user ? '/profile?onboard=host' : '/auth/register?next=/profile?onboard=host'}
+              className="hidden md:inline-flex rounded-full px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+            >
+              {router.locale === 'ar' ? 'كن مضيفاً' : 'Become a host'}
+            </Link>
+          )}
 
           <button
             type="button"
@@ -152,9 +234,11 @@ export function Header() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-7xl px-6 pb-3">
-        <CategoryStrip />
-      </div>
+      {!isHostMode && (
+        <div className="mx-auto max-w-7xl px-6 pb-3">
+          <CategoryStrip />
+        </div>
+      )}
     </header>
   );
 }

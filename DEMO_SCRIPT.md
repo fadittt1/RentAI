@@ -1,8 +1,27 @@
 # RentAI — Demo Script
 
-**Duration:** 5–8 minutes  
-**URLs:** `FRONTEND_URL=http://localhost:3000` · `SWAGGER_URL=http://localhost:3000/api/docs`  
+**Duration:** 6–10 minutes
+**URLs:** `FRONTEND_URL=http://localhost:3000` · `SWAGGER_URL=http://localhost:3001/api/docs`
 **Prep:** `npm run dev:all` running, seed applied (`npm run seed`), browser at `FRONTEND_URL`.
+
+> **Port reminder:** backend on `:3001` (Swagger lives there), frontend on `:3000`.
+
+## Pre-demo setup (run once)
+
+```bash
+# 1. Make sure PostGIS is enabled (safety-net — init migration usually handles it)
+docker exec renteverything_postgres psql -U postgres -d rental_platform \
+  -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+
+# 2. Promote your demo account to host + admin + verified
+#    Works on ANY existing user — register first if needed, then run:
+node scripts/promote-user.mjs user1@example.com
+
+# 3. Confirm: AI_PROVIDER=gemini in .env (Groq key is dead, do not switch back)
+grep AI_PROVIDER .env
+```
+
+If you need a second account (renter), promote a second one or just register fresh — renters don't need promotion.
 
 ---
 
@@ -115,9 +134,63 @@ POST /api/bookings  { listingId: SLOT_ID, startDate: SLOT_DATE, endDate: SLOT_DA
 
 ---
 
+## 7 · AI Image Classification on Listing Creation (~1 min)
+
+**URL:** `FRONTEND_URL/host/create` (must be logged in as a host, e.g. `user1@example.com`)
+
+> "When a host uploads photos, a vision model classifies the listing into the right category automatically — fewer steps for the host."
+
+- Drag a photo of a villa (or any property) into the upload area
+- Watch the spinner under the **Category** field: "Analyse des photos par IA…"
+- ~2 s later the category dropdown auto-selects (e.g. **Stays**) with a blue badge: **"Détecté par IA · Séjour / Villa · 94%"**
+- If you change the dropdown, the badge shows **"(modifié)"** — the host can always override
+
+> "If vision returns low confidence (<50%), we don't pre-fill. The user is never wrong, just guided."
+
+---
+
+## 8 · Account Verification with One-Time Codes (~1 min)
+
+**URL:** `FRONTEND_URL/profile` (logged in)
+
+> "Email and phone aren't trusted at signup — both are verified with a 6-digit code that expires in 10 minutes."
+
+- Click **"Verify Account"** → modal opens with channel picker (Email / Phone SMS)
+- Pick **Email** → toast confirms code sent
+- **Show the backend console** — code is logged in dev: `[DEV] Email verification code for ...: 564687`
+- Paste the code into the modal → **Verified** badge appears
+- Try clicking Verify again → "EMAIL already verified" (idempotent)
+- Try a wrong code → "Invalid code" (attempts tracked; 5 max before code is burned)
+
+> "In production this routes through Resend (email) or Twilio (SMS) — toggled by env vars, no code change."
+
+---
+
+## 9 · Slot-Based Booking (Hourly Rentals) (~1.5 min)
+
+**URL:** `FRONTEND_URL/host/create` then `FRONTEND_URL/listings/<slot-listing-id>`
+
+> "Daily rentals aren't the only model — padel courts, tennis, studios all rent by the hour. Same backend, different config."
+
+**Host side:**
+- On the create-listing form, click the **Time slots** booking-type card (next to Daily)
+- A slot-config card appears: **opens 08:00**, **closes 22:00**, **slot length 60 min**, **price per slot 50 TND**
+- Submit → listing created + slot configuration posted to `POST /api/listings/:id/slot-configuration`
+
+**Renter side:**
+- Visit the listing detail page → pick a date → backend returns available 60-min slots
+- Already-booked slots are missing from the list
+- Pick a slot → click "Request to book"
+- Booking page shows **"50 TND × 1 slot"** in the price breakdown (not "× 1 day")
+- Confirm → request sent with `startTime` / `endTime` payload
+
+> "The backend validates the slot against operating hours, buffer time, and existing bookings — atomically, with row-level locking."
+
+---
+
 ## Closing (~15 s)
 
-> "AI-powered search, real-time geospatial categories, and conflict-safe bookings — all on a single stack. Thank you."
+> "AI-powered search, image-based category detection, real-time geospatial categories, verified accounts, daily + slot bookings, and conflict-safe pricing — all on a single stack. Thank you."
 
 ---
 

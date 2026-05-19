@@ -147,18 +147,35 @@ export default function ListingDetailsPage() {
             className="border-b border-gray-100 bg-white"
           >
             <div className="mx-auto max-w-7xl px-6 py-3">
-              <div className="flex items-center text-sm text-gray-600">
-                <Link href="/" className="transition hover:text-gray-900">
-                  Home
-                </Link>
-                <i className="fa-solid fa-chevron-right mx-2 text-xs"></i>
-                <Link href="/search" className="transition hover:text-gray-900">
-                  {listing.category?.name || 'Listings'}
-                </Link>
-                <i className="fa-solid fa-chevron-right mx-2 text-xs"></i>
-                <span className="font-medium text-gray-900">
-                  {listing.title}
-                </span>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center text-sm text-gray-600">
+                  <Link href="/" className="transition hover:text-gray-900">
+                    Home
+                  </Link>
+                  <i className="fa-solid fa-chevron-right mx-2 text-xs"></i>
+                  <Link
+                    href={
+                      listing.category?.slug
+                        ? `/search?categorySlug=${listing.category.slug}`
+                        : '/search'
+                    }
+                    className="transition hover:text-gray-900"
+                  >
+                    {listing.category?.name || 'Listings'}
+                  </Link>
+                  <i className="fa-solid fa-chevron-right mx-2 text-xs"></i>
+                  <span className="truncate font-medium text-gray-900">
+                    {listing.title}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => router.back()}
+                  className="hidden shrink-0 items-center gap-1.5 text-sm text-gray-500 transition hover:text-gray-900 md:flex"
+                >
+                  <i className="fa-solid fa-arrow-left text-xs" />
+                  Back
+                </button>
               </div>
             </div>
           </section>
@@ -172,13 +189,21 @@ export default function ListingDetailsPage() {
                     {listing.title}
                   </h1>
                   <div className="flex items-center space-x-4 text-sm">
-                    <div className="flex items-center">
-                      <i className="fa-solid fa-star mr-1 text-yellow-400"></i>
-                      <span className="font-semibold">4.8</span>
-                      <span className="ml-1 text-gray-500">
-                        ({reviews.length} reviews)
-                      </span>
-                    </div>
+                    {Number(listing.ratingCount ?? 0) > 0 ? (
+                      <div className="flex items-center">
+                        <i className="fa-solid fa-star mr-1 text-yellow-400"></i>
+                        <span className="font-semibold">
+                          {Number(listing.ratingAvg ?? 0).toFixed(1)}
+                        </span>
+                        <span className="ml-1 text-gray-500">
+                          ({listing.ratingCount}{' '}
+                          {Number(listing.ratingCount) === 1 ? 'review' : 'reviews'}
+                          )
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-gray-400">No reviews yet</span>
+                    )}
                     <span className="text-gray-400">•</span>
                     <div className="flex items-center text-gray-700">
                       <i className="fa-solid fa-location-dot mr-1 text-blue-500"></i>
@@ -554,7 +579,9 @@ export default function ListingDetailsPage() {
                       <div className="mb-6 flex items-center justify-between">
                         <h2 className="flex items-center text-xl font-bold text-gray-900">
                           <i className="fa-solid fa-star mr-2 text-yellow-400"></i>
-                          4.8 · {reviews.length} reviews
+                          {Number(listing.ratingCount ?? 0) > 0
+                            ? `${Number(listing.ratingAvg ?? 0).toFixed(1)} · ${listing.ratingCount} ${Number(listing.ratingCount) === 1 ? 'review' : 'reviews'}`
+                            : 'No reviews yet'}
                         </h2>
                       </div>
 
@@ -640,13 +667,22 @@ export default function ListingDetailsPage() {
                             />
                           </div>
                           <div className="mt-2 text-center">
-                            <div className="flex items-center justify-center text-sm">
-                              <i className="fa-solid fa-star mr-1 text-yellow-400"></i>
-                              <span className="font-semibold">4.9</span>
-                            </div>
-                            <p className="mt-1 text-xs text-gray-500">
-                              {reviews.length} reviews
-                            </p>
+                            {Number(listing.host?.ratingCount ?? 0) > 0 ? (
+                              <>
+                                <div className="flex items-center justify-center text-sm">
+                                  <i className="fa-solid fa-star mr-1 text-yellow-400"></i>
+                                  <span className="font-semibold">
+                                    {Number(listing.host.ratingAvg ?? 0).toFixed(1)}
+                                  </span>
+                                </div>
+                                <p className="mt-1 text-xs text-gray-500">
+                                  {listing.host.ratingCount}{' '}
+                                  {Number(listing.host.ratingCount) === 1 ? 'review' : 'reviews'}
+                                </p>
+                              </>
+                            ) : (
+                              <p className="text-xs text-gray-400">New host</p>
+                            )}
                           </div>
                         </div>
                         <div className="flex-1">
@@ -737,13 +773,21 @@ export default function ListingDetailsPage() {
                         </span>
                         <span className="ml-2 text-gray-600">/ day</span>
                       </div>
-                      <div className="flex items-center text-sm">
-                        <i className="fa-solid fa-star mr-1 text-yellow-400"></i>
-                        <span className="mr-1 font-semibold">4.8</span>
-                        <span className="text-gray-500">
-                          ({reviews.length} reviews)
-                        </span>
-                      </div>
+                      {Number(listing.ratingCount ?? 0) > 0 ? (
+                        <div className="flex items-center text-sm">
+                          <i className="fa-solid fa-star mr-1 text-yellow-400"></i>
+                          <span className="mr-1 font-semibold">
+                            {Number(listing.ratingAvg ?? 0).toFixed(1)}
+                          </span>
+                          <span className="text-gray-500">
+                            ({listing.ratingCount}{' '}
+                            {Number(listing.ratingCount) === 1 ? 'review' : 'reviews'}
+                            )
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-400">No reviews yet</div>
+                      )}
                     </div>
 
                     <div className="mb-6 space-y-3">

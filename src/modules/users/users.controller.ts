@@ -42,14 +42,6 @@ export class UsersController {
     );
   }
 
-  @Post('me/verify')
-  @ApiOperation({
-    summary: 'Verify current user (dev only - auto-verifies email/phone)',
-  })
-  verifyUser(@Request() req) {
-    return this.usersService.verifyUser(req.user.sub);
-  }
-
   @Get(':id')
   @ApiOperation({ summary: 'Get user public profile' })
   findOne(@Param('id') id: string) {

@@ -6,7 +6,10 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { RefreshTokenStrategy } from './strategies/refresh-token.strategy';
+import { GoogleStrategy } from './strategies/google.strategy';
 import { UsersModule } from '../users/users.module';
+import { NotificationService } from './notification.service';
+import { VerificationService } from './verification.service';
 
 @Module({
   imports: [
@@ -24,7 +27,14 @@ import { UsersModule } from '../users/users.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, RefreshTokenStrategy],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    RefreshTokenStrategy,
+    GoogleStrategy,
+    NotificationService,
+    VerificationService,
+  ],
   exports: [AuthService],
 })
 export class AuthModule {}

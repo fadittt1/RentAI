@@ -21,15 +21,29 @@ export default function BookingPage() {
   const [endDate, setEndDate] = useState(
     (router.query.endDate as string) || '',
   );
+  const [startTime, setStartTime] = useState(
+    (router.query.startTime as string) || '',
+  );
+  const [endTime, setEndTime] = useState(
+    (router.query.endTime as string) || '',
+  );
   const [datesFromListing, setDatesFromListing] = useState(false);
 
   useEffect(() => {
     if (router.isReady) {
       if (router.query.startDate) setStartDate(router.query.startDate as string);
       if (router.query.endDate) setEndDate(router.query.endDate as string);
+      if (router.query.startTime) setStartTime(router.query.startTime as string);
+      if (router.query.endTime) setEndTime(router.query.endTime as string);
       if (router.query.startDate && router.query.endDate) setDatesFromListing(true);
     }
-  }, [router.isReady, router.query.startDate, router.query.endDate]);
+  }, [
+    router.isReady,
+    router.query.startDate,
+    router.query.endDate,
+    router.query.startTime,
+    router.query.endTime,
+  ]);
 
   const [message, setMessage] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('card');
@@ -41,15 +55,20 @@ export default function BookingPage() {
   const { data: wallet } = useWallet();
   const listing = listingQuery.data as any;
 
+  const isSlot = listing?.bookingType === 'SLOT';
+
   const handleCreateBooking = async () => {
     if (!listingId || !startDate || !endDate || !acceptTerms || !acceptRules)
       return;
+    if (isSlot && (!startTime || !endTime)) return;
     setPaid(false);
     try {
       await createBooking.mutateAsync({
         listingId,
         startDate,
         endDate,
+        ...(isSlot && startTime ? { startTime } : {}),
+        ...(isSlot && endTime ? { endTime } : {}),
         ...(message.trim() ? { message: message.trim() } : {}),
       });
     } catch (error) {
@@ -92,8 +111,24 @@ export default function BookingPage() {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
   };
 
+  const calculateSlots = () => {
+    if (!isSlot || !startTime || !endTime) return 0;
+    const slotDuration = Number(listing?.slotConfiguration?.slotDurationMinutes) || 60;
+    const [sh, sm] = startTime.split(':').map(Number);
+    const [eh, em] = endTime.split(':').map(Number);
+    const startMin = sh * 60 + sm;
+    const endMin = eh * 60 + em;
+    if (endMin <= startMin) return 0;
+    return Math.ceil((endMin - startMin) / slotDuration);
+  };
+
   const days = calculateDays();
-  const basePrice = listing ? Number(listing.pricePerDay) * days : 0;
+  const slots = calculateSlots();
+  const unitPrice = isSlot
+    ? Number(listing?.slotConfiguration?.pricePerSlot) || 0
+    : Number(listing?.pricePerDay) || 0;
+  const unitCount = isSlot ? slots : days;
+  const basePrice = unitPrice * unitCount;
   const serviceFee = basePrice * 0.1;
   const insuranceFee = basePrice * 0.05;
   const subtotal = basePrice + serviceFee + insuranceFee;
@@ -206,16 +241,35 @@ export default function BookingPage() {
                   </div>
                 </div>
               )}
-              <div className="mt-4 border-t border-gray-200 pt-4">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-gray-700">
-                    Total rental period
-                  </span>
-                  <span className="font-semibold text-gray-900">
-                    {days} {days === 1 ? 'day' : 'days'}
-                  </span>
+              {isSlot && startTime && endTime && (
+                <div className="mt-4 border-t border-gray-200 pt-4">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-gray-700">Time slot</span>
+                    <span className="font-semibold text-gray-900">
+                      {startTime} – {endTime}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-sm">
+                    <span className="text-gray-500">
+                      {slots} {slots === 1 ? 'slot' : 'slots'} ×{' '}
+                      {listing?.slotConfiguration?.slotDurationMinutes ?? 60}{' '}
+                      min
+                    </span>
+                  </div>
                 </div>
-              </div>
+              )}
+              {!isSlot && (
+                <div className="mt-4 border-t border-gray-200 pt-4">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-gray-700">
+                      Total rental period
+                    </span>
+                    <span className="font-semibold text-gray-900">
+                      {days} {days === 1 ? 'day' : 'days'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </section>
 
             {/* Message to host */}
@@ -274,13 +328,23 @@ export default function BookingPage() {
                         </h3>
                         <p className="text-sm text-gray-500">Joined in 2023</p>
                       </div>
-                      <div className="flex items-center">
-                        <i className="fa-solid fa-star text-sm text-yellow-400"></i>
-                        <span className="ml-1 text-sm font-medium">4.9</span>
-                        <span className="ml-1 text-sm text-gray-500">
-                          (47 reviews)
-                        </span>
-                      </div>
+                      {Number(listing.host?.ratingCount ?? 0) > 0 ? (
+                        <div className="flex items-center">
+                          <i className="fa-solid fa-star text-sm text-yellow-400"></i>
+                          <span className="ml-1 text-sm font-medium">
+                            {Number(listing.host.ratingAvg ?? 0).toFixed(1)}
+                          </span>
+                          <span className="ml-1 text-sm text-gray-500">
+                            ({listing.host.ratingCount}{' '}
+                            {Number(listing.host.ratingCount) === 1
+                              ? 'review'
+                              : 'reviews'}
+                            )
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400">New host</span>
+                      )}
                     </div>
                     <div className="mb-3 flex items-center space-x-4 text-sm text-gray-600">
                       <div className="flex items-center">
@@ -568,6 +632,7 @@ export default function BookingPage() {
                     !listingId ||
                     !startDate ||
                     !endDate ||
+                    (isSlot && (!startTime || !endTime)) ||
                     !acceptTerms ||
                     !acceptRules ||
                     createBooking.isPending
@@ -591,20 +656,55 @@ export default function BookingPage() {
               </div>
             )}
 
-            {paid && (
-              <div className="mt-6 rounded-xl border border-green-200 bg-green-50 p-4">
-                <div className="flex items-center text-green-800">
-                  <i className="fa-solid fa-check-circle mr-2"></i>
-                  <span className="font-semibold">
-                    Payment successful! Your booking is confirmed.
-                  </span>
+            {createBooking.data && !paid && (
+              <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <div className="flex items-start gap-3">
+                  <i className="fa-solid fa-circle-info mt-0.5 text-blue-600"></i>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-blue-900">
+                      Booking request created
+                    </p>
+                    <p className="mt-1 text-sm text-blue-700">
+                      Complete payment to confirm your reservation. The host will
+                      review your request and you&apos;ll get a notification once
+                      they respond.
+                    </p>
+                  </div>
                 </div>
-                <Link
-                  href="/rentals"
-                  className="mt-3 inline-block font-medium text-blue-500 transition hover:text-blue-600"
-                >
-                  View my rentals →
-                </Link>
+              </div>
+            )}
+
+            {paid && (
+              <div className="mt-6 rounded-xl border border-green-200 bg-green-50 p-5">
+                <div className="flex items-start gap-3">
+                  <i className="fa-solid fa-check-circle mt-0.5 text-2xl text-green-600"></i>
+                  <div className="flex-1">
+                    <p className="text-base font-semibold text-green-900">
+                      Payment authorized — booking submitted
+                    </p>
+                    <p className="mt-1 text-sm text-green-800">
+                      The host will review your request shortly. You can track
+                      its status in &quot;My rentals&quot; or message the host
+                      directly with any questions.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Link
+                        href="/rentals"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+                      >
+                        <i className="fa-solid fa-list-check" />
+                        View my rentals
+                      </Link>
+                      <Link
+                        href="/messages"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-green-300 bg-white px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-50"
+                      >
+                        <i className="fa-regular fa-comment" />
+                        Message host
+                      </Link>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -657,13 +757,23 @@ export default function BookingPage() {
                     <h3 className="mb-2 font-semibold text-gray-900">
                       {listing.title}
                     </h3>
-                    <div className="flex items-center">
-                      <i className="fa-solid fa-star text-xs text-yellow-400"></i>
-                      <span className="ml-1 text-sm font-medium">4.9</span>
-                      <span className="ml-1 text-sm text-gray-500">
-                        (127 reviews)
-                      </span>
-                    </div>
+                    {Number(listing.ratingCount ?? 0) > 0 ? (
+                      <div className="flex items-center">
+                        <i className="fa-solid fa-star text-xs text-yellow-400"></i>
+                        <span className="ml-1 text-sm font-medium">
+                          {Number(listing.ratingAvg ?? 0).toFixed(1)}
+                        </span>
+                        <span className="ml-1 text-sm text-gray-500">
+                          ({listing.ratingCount}{' '}
+                          {Number(listing.ratingCount) === 1 ? 'review' : 'reviews'}
+                          )
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-gray-400">
+                        No reviews yet
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -673,8 +783,14 @@ export default function BookingPage() {
                   </h3>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-700">
-                      {formatTnd(listing.pricePerDay)} × {days}{' '}
-                      {days === 1 ? 'day' : 'days'}
+                      {formatTnd(unitPrice)} × {unitCount}{' '}
+                      {isSlot
+                        ? unitCount === 1
+                          ? 'slot'
+                          : 'slots'
+                        : unitCount === 1
+                          ? 'day'
+                          : 'days'}
                     </span>
                     <span className="text-gray-900">
                       {formatTnd(basePrice)}

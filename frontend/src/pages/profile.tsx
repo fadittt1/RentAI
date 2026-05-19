@@ -5,13 +5,14 @@ import { Layout } from '@/components/layout/Layout';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useProfile } from '@/lib/api/hooks/useProfile';
 import { useBecomeHost } from '@/lib/api/hooks/useBecomeHost';
-import { useVerifyUser } from '@/lib/api/hooks/useVerifyUser';
 import { useMyBookings } from '@/lib/api/hooks/useMyBookings';
 import { useReviewsByUser } from '@/lib/api/hooks/useReviewsByUser';
 import { LoadingCard } from '@/components/ui/LoadingCard';
 import { InlineError } from '@/components/ui/InlineError';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { toast } from '@/components/ui/Toaster';
+import { VerifyAccountModal } from '@/components/auth/VerifyAccountModal';
+import { BecomeHostModal } from '@/components/host/BecomeHostModal';
 import { useDebounce } from '@/lib/utils/useDebounce';
 import { useUserLocation } from '@/lib/hooks/useUserLocation';
 import { UsersService } from '@/lib/api/generated/services/UsersService';
@@ -22,7 +23,9 @@ export default function ProfilePage() {
   const { user, refreshUser } = useAuth();
   const query = useProfile();
   const becomeHostMutation = useBecomeHost();
-  const verifyUserMutation = useVerifyUser();
+  const [verifyModalOpen, setVerifyModalOpen] = useState(false);
+  const [becomeHostModalOpen, setBecomeHostModalOpen] = useState(false);
+  const [becomeHostError, setBecomeHostError] = useState<string | null>(null);
   const bookingsQuery = useMyBookings();
   const reviewsQuery = useReviewsByUser(user?.id || query.data?.id);
 
@@ -119,12 +122,20 @@ export default function ProfilePage() {
     }
   };
 
-  const handleBecomeHost = async () => {
+  // Opens the multi-check modal. The actual mutation runs in the modal's onConfirm.
+  const handleBecomeHost = () => {
+    setBecomeHostError(null);
+    setBecomeHostModalOpen(true);
+  };
+
+  const confirmBecomeHost = async () => {
+    setBecomeHostError(null);
     try {
       await becomeHostMutation.mutateAsync();
       await refreshUser();
       await new Promise((resolve) => setTimeout(resolve, 100));
       toast({ title: 'You are now a host!', variant: 'success' });
+      setBecomeHostModalOpen(false);
       router.push('/host/dashboard');
     } catch (error: any) {
       console.error('[Profile] Full error object:', error);
@@ -145,7 +156,7 @@ export default function ProfilePage() {
       } else if (error?.message && error.message !== 'Bad Request') {
         message = error.message;
       }
-      toast({ title: 'Error', message, variant: 'error' });
+      setBecomeHostError(message);
     }
   };
 
@@ -158,24 +169,60 @@ export default function ProfilePage() {
     user?.verifiedPhone,
   );
 
-  const handleVerifyAccount = async () => {
-    try {
-      await verifyUserMutation.mutateAsync();
-      await query.refetch();
-      await refreshUser();
-      toast({
-        title: 'Account verified!',
-        message: 'Your email and phone have been verified.',
-        variant: 'success',
-      });
-    } catch (error: any) {
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        'Failed to verify account. Please try again.';
-      toast({ title: 'Error', message, variant: 'error' });
-    }
+  const handleVerifyAccount = () => setVerifyModalOpen(true);
+
+  const handleVerifiedSuccess = async () => {
+    await query.refetch();
+    await refreshUser();
   };
+
+  // ── Onboarding / completeness ───────────────────────────────────────────
+  const onboardingMode = router.query.onboard === 'host' ? 'host' : null;
+  const isEmailVerified = Boolean(
+    profileData?.verifiedEmail ?? user?.verifiedEmail,
+  );
+  const isPhoneVerified = Boolean(
+    profileData?.verifiedPhone ?? user?.verifiedPhone,
+  );
+  const hasHome = Boolean((user as any)?.homeLat && (user as any)?.homeLng);
+  const isHostFlag = Boolean(profileData?.isHost ?? user?.isHost);
+
+  const scrollToHomeLocation = () => {
+    document
+      .getElementById('home-location-section')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const completenessSteps = [
+    {
+      key: 'verify-contact',
+      label:
+        isEmailVerified || isPhoneVerified
+          ? 'Contact verified'
+          : 'Verify your email or phone',
+      done: isEmailVerified || isPhoneVerified,
+      onClick: () => setVerifyModalOpen(true),
+      hint: 'Renters trust verified hosts more.',
+    },
+    {
+      key: 'home',
+      label: hasHome ? 'Home city saved' : 'Save your home city',
+      done: hasHome,
+      onClick: scrollToHomeLocation,
+      hint: 'We use it to show you nearby listings first.',
+    },
+    {
+      key: 'become-host',
+      label: isHostFlag ? 'Host mode enabled' : 'Become a host',
+      done: isHostFlag,
+      onClick: handleBecomeHost,
+      hint: 'List your first item and start earning.',
+    },
+  ];
+  const doneCount = completenessSteps.filter((s) => s.done).length;
+  const totalSteps = completenessSteps.length;
+  const completenessPct = Math.round((doneCount / totalSteps) * 100);
+  const showCompletenessCard = doneCount < totalSteps || onboardingMode === 'host';
 
   // Calculate stats
   const bookings = (bookingsQuery.data as any) || [];
@@ -253,6 +300,86 @@ export default function ProfilePage() {
 
   return (
     <Layout>
+      {/* ── Onboarding / Completeness Card ── */}
+      {showCompletenessCard && (
+        <section className="bg-gradient-to-br from-blue-50 to-indigo-50 border-b border-blue-100">
+          <div className="mx-auto max-w-7xl px-6 py-6">
+            <div className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <i className="fa-solid fa-rocket text-blue-500" />
+                    <h2 className="text-lg font-bold text-gray-900">
+                      {onboardingMode === 'host'
+                        ? 'Welcome! Finish setting up your hosting account'
+                        : 'Complete your profile'}
+                    </h2>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    {onboardingMode === 'host'
+                      ? 'A couple of quick steps and you can publish your first listing.'
+                      : 'A complete profile gets better trust and more bookings.'}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-blue-600">
+                    {completenessPct}%
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {doneCount} of {totalSteps} done
+                  </div>
+                </div>
+              </div>
+
+              {/* progress bar */}
+              <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all"
+                  style={{ width: `${completenessPct}%` }}
+                />
+              </div>
+
+              {/* step list */}
+              <ul className="mt-5 space-y-2.5">
+                {completenessSteps.map((s) => (
+                  <li
+                    key={s.key}
+                    className="flex items-start gap-3 rounded-lg border border-gray-100 bg-gray-50/60 p-3"
+                  >
+                    <span
+                      className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
+                        s.done
+                          ? 'bg-emerald-100 text-emerald-600'
+                          : 'bg-gray-200 text-gray-400'
+                      }`}
+                    >
+                      <i className={`fa-solid ${s.done ? 'fa-check' : 'fa-circle'} text-xs`} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className={`text-sm font-medium ${s.done ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+                        {s.label}
+                      </div>
+                      {!s.done && (
+                        <div className="text-xs text-gray-500 mt-0.5">{s.hint}</div>
+                      )}
+                    </div>
+                    {!s.done && s.onClick && (
+                      <button
+                        type="button"
+                        onClick={s.onClick}
+                        className="shrink-0 rounded-lg bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-600"
+                      >
+                        Do this
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Profile Hero Section */}
       <section
         id="profile-hero"
@@ -327,13 +454,10 @@ export default function ProfilePage() {
                     <button
                       type="button"
                       onClick={handleVerifyAccount}
-                      disabled={verifyUserMutation.isPending}
-                      className="flex items-center rounded-lg bg-yellow-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-yellow-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="flex items-center rounded-lg bg-yellow-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-yellow-600"
                     >
                       <i className="fa-solid fa-check-circle mr-2"></i>
-                      {verifyUserMutation.isPending
-                        ? 'Verifying...'
-                        : 'Verify Account'}
+                      Verify Account
                     </button>
                   </div>
                 )}
@@ -785,10 +909,9 @@ export default function ProfilePage() {
                   ) : (
                     <button
                       onClick={handleVerifyAccount}
-                      disabled={verifyUserMutation.isPending}
-                      className="text-sm font-medium text-blue-500 transition hover:text-blue-600 disabled:opacity-50"
+                      className="text-sm font-medium text-blue-500 transition hover:text-blue-600"
                     >
-                      {verifyUserMutation.isPending ? 'Verifying...' : 'Verify'}
+                      Verify
                     </button>
                   )}
                 </div>
@@ -813,10 +936,9 @@ export default function ProfilePage() {
                   ) : (
                     <button
                       onClick={handleVerifyAccount}
-                      disabled={verifyUserMutation.isPending}
-                      className="text-sm font-medium text-blue-500 transition hover:text-blue-600 disabled:opacity-50"
+                      className="text-sm font-medium text-blue-500 transition hover:text-blue-600"
                     >
-                      {verifyUserMutation.isPending ? 'Verifying...' : 'Verify'}
+                      Verify
                     </button>
                   )}
                 </div>
@@ -900,6 +1022,30 @@ export default function ProfilePage() {
           </div>
         </div>
       </section>
+
+      <VerifyAccountModal
+        open={verifyModalOpen}
+        onClose={() => setVerifyModalOpen(false)}
+        onVerified={handleVerifiedSuccess}
+        availableChannels={{
+          email: !!displayUser?.email,
+          phone: !!displayUser?.phone,
+        }}
+      />
+
+      <BecomeHostModal
+        open={becomeHostModalOpen}
+        onClose={() => setBecomeHostModalOpen(false)}
+        onConfirm={confirmBecomeHost}
+        isPending={becomeHostMutation.isPending}
+        errorMessage={becomeHostError}
+        emailVerified={isEmailVerified}
+        phoneVerified={isPhoneVerified}
+        onRequestVerify={() => {
+          setBecomeHostModalOpen(false);
+          setTimeout(() => setVerifyModalOpen(true), 150);
+        }}
+      />
     </Layout>
   );
 }

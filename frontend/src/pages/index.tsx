@@ -342,10 +342,16 @@ export default function HomePage() {
                       <h3 className="font-semibold text-gray-900">
                         {listing.title}
                       </h3>
-                      <div className="flex items-center">
-                        <i className="fa-solid fa-star text-xs text-yellow-400"></i>
-                        <span className="ml-1 text-sm font-medium">4.8</span>
-                      </div>
+                      {Number((listing as any).ratingCount ?? 0) > 0 ? (
+                        <div className="flex items-center">
+                          <i className="fa-solid fa-star text-xs text-yellow-400"></i>
+                          <span className="ml-1 text-sm font-medium">
+                            {Number((listing as any).ratingAvg ?? 0).toFixed(1)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400">New</span>
+                      )}
                     </div>
                     <p className="mb-2 text-sm text-gray-600">
                       {listing.address?.split(',')[0] || cityName}

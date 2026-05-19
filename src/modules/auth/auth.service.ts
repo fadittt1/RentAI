@@ -10,8 +10,10 @@ import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { VerifyDto } from './dto/verify.dto';
+import { RequestVerificationDto } from './dto/request-verification.dto';
 import * as bcrypt from 'bcrypt';
 import type { JwtPayload, Role } from '../../common/auth/jwt-payload';
+import { VerificationService } from './verification.service';
 
 @Injectable()
 export class AuthService {
@@ -21,6 +23,7 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private verificationService: VerificationService,
   ) { }
 
   async register(registerDto: RegisterDto) {
@@ -92,6 +95,17 @@ export class AuthService {
         throw new UnauthorizedException('Invalid credentials');
       }
 
+      // OAuth-only users have no password; tell them to use Google instead of
+      // leaking that the account exists.
+      if (!user.passwordHash) {
+        this.logger.warn(
+          `Login failed — OAuth-only account, no local password: ${identifier}`,
+        );
+        throw new UnauthorizedException(
+          'This account was created with Google. Use "Continue with Google" instead.',
+        );
+      }
+
       const isPasswordValid = await bcrypt.compare(
         loginDto.password,
         user.passwordHash,
@@ -159,28 +173,19 @@ export class AuthService {
     }
   }
 
-  async verify(verifyDto: VerifyDto) {
-    const user = await this.usersService.findOne(verifyDto.userId);
-    if (!user) {
-      throw new BadRequestException('User not found');
-    }
+  async requestVerification(userId: string, dto: RequestVerificationDto) {
+    const channel = dto.type === 'email' ? 'EMAIL' : 'PHONE';
+    return this.verificationService.requestCode(userId, channel);
+  }
 
-    // TODO: Implement actual verification code check
-    // For now, just set verified based on what was provided
-    if (verifyDto.type === 'email') {
-      user.verifiedEmail = true;
-    } else if (verifyDto.type === 'phone') {
-      user.verifiedPhone = true;
-    }
-
-    // Note: verifiedEmail/verifiedPhone aren't part of the public UpdateUserDto (profile update).
-    // We still persist them here explicitly.
-    await this.usersService.update(user.id, {
-      verifiedEmail: user.verifiedEmail as any,
-      verifiedPhone: user.verifiedPhone as any,
-    });
-
-    return { message: 'Verification successful' };
+  async verify(userId: string, verifyDto: VerifyDto) {
+    const channel = verifyDto.type === 'email' ? 'EMAIL' : 'PHONE';
+    const result = await this.verificationService.verifyCode(
+      userId,
+      channel,
+      verifyDto.code,
+    );
+    return { message: 'Verification successful', ...result };
   }
 
   private getRoleForUser(user: { roles?: string[]; isHost?: boolean }): Role {
@@ -204,5 +209,42 @@ export class AuthService {
     });
 
     return { accessToken, refreshToken };
+  }
+
+  // ─── OAuth (Google) ─────────────────────────────────────────────────────
+
+  /**
+   * Find a user by Google id, or link/create one. Called from the Passport
+   * Google strategy after Google verifies the user's identity.
+   */
+  async findOrCreateFromGoogle(payload: {
+    googleId: string;
+    email: string;
+    name: string;
+    avatarUrl?: string;
+  }) {
+    return this.usersService.findOrCreateFromGoogle(payload);
+  }
+
+  /**
+   * Issue access + refresh tokens for an already-authenticated user (e.g. the
+   * one Passport just resolved from a Google profile).
+   */
+  async issueTokensFor(user: {
+    id: string;
+    email: string | null;
+    phone: string | null;
+    roles?: string[];
+    isHost?: boolean;
+    suspendedAt?: Date | null;
+  }) {
+    if (user.suspendedAt) {
+      throw new UnauthorizedException('Your account has been suspended');
+    }
+    return this.generateTokens(
+      user.id,
+      user.email || user.phone || user.id,
+      this.getRoleForUser(user),
+    );
   }
 }
