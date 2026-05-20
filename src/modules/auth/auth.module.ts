@@ -10,6 +10,7 @@ import { GoogleStrategy } from './strategies/google.strategy';
 import { UsersModule } from '../users/users.module';
 import { NotificationService } from './notification.service';
 import { VerificationService } from './verification.service';
+import { PasswordResetService } from './password-reset.service';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { VerificationService } from './verification.service';
     GoogleStrategy,
     NotificationService,
     VerificationService,
+    PasswordResetService,
   ],
   exports: [AuthService],
 })

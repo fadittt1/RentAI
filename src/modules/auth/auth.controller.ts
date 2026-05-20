@@ -14,11 +14,14 @@ import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
+import { PasswordResetService } from './password-reset.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { VerifyDto } from './dto/verify.dto';
 import { RequestVerificationDto } from './dto/request-verification.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { JwtRefreshGuard } from '../../common/guards/jwt-refresh.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -29,6 +32,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
+    private readonly passwordResetService: PasswordResetService,
   ) {}
 
   @Public()
@@ -84,6 +88,33 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Verification successful' })
   async verify(@Request() req, @Body() verifyDto: VerifyDto) {
     return this.authService.verify(req.user.sub, verifyDto);
+  }
+
+  // ─── Password reset ────────────────────────────────────────────────────
+
+  @Public()
+  @Post('forgot-password')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Request a password reset email',
+    description:
+      'Always responds 200 with the same message whether or not the email is registered, ' +
+      'to avoid leaking which accounts exist. In dev (no RESEND_API_KEY), the reset link ' +
+      'is logged to the backend console.',
+  })
+  @ApiResponse({ status: 200, description: 'Reset email sent if the account exists' })
+  async forgotPassword(@Body() dto: ForgotPasswordDto, @Request() req: any) {
+    const ip = (req?.ip as string | undefined) ?? undefined;
+    return this.passwordResetService.requestReset(dto.email, ip);
+  }
+
+  @Public()
+  @Post('reset-password')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Set a new password using a token from the reset email' })
+  @ApiResponse({ status: 200, description: 'Password updated' })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.passwordResetService.resetPassword(dto.token, dto.password);
   }
 
   // ─── Google OAuth ──────────────────────────────────────────────────────
