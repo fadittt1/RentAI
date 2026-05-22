@@ -115,7 +115,13 @@ export default function ProfilePage() {
         homeCityName: userLocation.cityName,
       } as any);
       await refreshUser();
-      toast({ title: 'Home location saved', message: userLocation.cityName, variant: 'success' });
+      // Also apply as the active session location so the chip + every page updates now
+      userLocation.setManualLocation({
+        lat: userLocation.lat,
+        lng: userLocation.lng,
+        cityName: userLocation.cityName,
+      });
+      toast({ title: 'Home saved and applied', message: userLocation.cityName, variant: 'success' });
     } catch {
       toast({ title: 'Save failed', variant: 'error' });
     } finally {
@@ -126,16 +132,23 @@ export default function ProfilePage() {
   const handleSavePickedHome = async () => {
     if (!homeSelected) return;
     setHomeSaving(true);
+    const picked = homeSelected;
     try {
       await UsersService.usersControllerUpdateProfile({
-        homeLat: homeSelected.lat,
-        homeLng: homeSelected.lng,
-        homeCityName: homeSelected.cityName,
+        homeLat: picked.lat,
+        homeLng: picked.lng,
+        homeCityName: picked.cityName,
       } as any);
       await refreshUser();
+      // Apply as the active session location so the chip + every page updates now
+      userLocation.setManualLocation({
+        lat: picked.lat,
+        lng: picked.lng,
+        cityName: picked.cityName,
+      });
       setHomeInput('');
       setHomeSelected(null);
-      toast({ title: 'Home location saved', message: homeSelected.cityName, variant: 'success' });
+      toast({ title: 'Home saved and applied', message: picked.cityName, variant: 'success' });
     } catch {
       toast({ title: 'Save failed', variant: 'error' });
     } finally {
@@ -152,6 +165,8 @@ export default function ProfilePage() {
         homeCityName: null,
       } as any);
       await refreshUser();
+      // Drop the manual override too so GPS / default takes over again
+      userLocation.resetLocation();
       toast({ title: 'Home location cleared', variant: 'success' });
     } catch {
       toast({ title: 'Clear failed', variant: 'error' });
