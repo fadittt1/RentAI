@@ -9,6 +9,7 @@ import {
   IsLongitude,
   IsOptional,
   IsArray,
+  IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
@@ -75,6 +76,18 @@ export class CreateListingDto {
   @IsOptional()
   @IsString()
   bookingType?: 'DAILY' | 'SLOT';
+
+  @ApiProperty({
+    required: false,
+    enum: ['FLEXIBLE', 'MODERATE', 'STRICT'],
+    default: 'MODERATE',
+    description:
+      'Cancellation policy. FLEXIBLE: full refund up to 24h before start. ' +
+      'MODERATE: full refund up to 5 days, 50% up to 24h before. STRICT: 50% refund up to 7 days before, then none.',
+  })
+  @IsOptional()
+  @IsIn(['FLEXIBLE', 'MODERATE', 'STRICT'])
+  cancellationPolicy?: 'FLEXIBLE' | 'MODERATE' | 'STRICT';
 
   @ApiProperty({ required: false, type: [String] })
   @IsOptional()

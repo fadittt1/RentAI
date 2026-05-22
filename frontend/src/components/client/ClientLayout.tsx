@@ -17,7 +17,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
                   <i className="fa-solid fa-circle-nodes text-white text-lg" />
                 </div>
                 <span className="text-xl font-bold text-gray-900">
-                  RentLocal
+                  RentEverything
                 </span>
               </Link>
             </div>
@@ -28,9 +28,6 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
                 onClick={() => router.push('/host/create')}
               >
                 Become a host
-              </button>
-              <button className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 transition">
-                <i className="fa-solid fa-globe text-gray-600" />
               </button>
               <div
                 className="flex items-center border border-gray-300 rounded-full pl-3 pr-1 py-1 shadow-sm hover:shadow-md transition cursor-pointer"
@@ -57,129 +54,16 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
 
       {children}
 
-      <footer id="footer" className="bg-gray-900 text-white py-12 mt-16">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="grid grid-cols-4 gap-8 mb-8">
-            <div>
-              <h4 className="font-semibold mb-4">About</h4>
-              <ul className="space-y-2 text-sm text-gray-400">
-                <li>
-                  <a href="#" className="hover:text-white">
-                    How it works
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    About us
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Careers
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Press
-                  </a>
-                </li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="font-semibold mb-4">Support</h4>
-              <ul className="space-y-2 text-sm text-gray-400">
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Help Center
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Safety
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Trust & Safety
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Contact us
-                  </a>
-                </li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="font-semibold mb-4">Hosting</h4>
-              <ul className="space-y-2 text-sm text-gray-400">
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Become a host
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Host resources
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Community forum
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Responsible hosting
-                  </a>
-                </li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="font-semibold mb-4">Legal</h4>
-              <ul className="space-y-2 text-sm text-gray-400">
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Terms of Service
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Privacy Policy
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Cookie Policy
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Sitemap
-                  </a>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="border-t border-gray-800 pt-8 flex items-center justify-between">
-            <p className="text-sm text-gray-400">
-              © 2024 RentLocal. All rights reserved.
-            </p>
-            <div className="flex items-center space-x-4">
-              <a href="#" className="text-gray-400 hover:text-white">
-                <i className="fa-brands fa-facebook text-xl" />
-              </a>
-              <a href="#" className="text-gray-400 hover:text-white">
-                <i className="fa-brands fa-instagram text-xl" />
-              </a>
-              <a href="#" className="text-gray-400 hover:text-white">
-                <i className="fa-brands fa-twitter text-xl" />
-              </a>
-            </div>
+      <footer className="border-t border-gray-200 bg-white py-6 mt-16">
+        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between text-sm text-gray-500">
+          <span>RentEverything · © {new Date().getFullYear()} · Tunisia</span>
+          <div className="flex items-center gap-4">
+            <Link href="/help" className="hover:text-gray-700">
+              Help
+            </Link>
+            <Link href="/profile" className="hover:text-gray-700">
+              Profile
+            </Link>
           </div>
         </div>
       </footer>

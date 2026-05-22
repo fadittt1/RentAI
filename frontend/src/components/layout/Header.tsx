@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { fetchUnreadCount } from '@/lib/api/chat';
 import { useUserLocation } from '@/lib/hooks/useUserLocation';
 import { useHostMode } from '@/lib/hooks/useHostMode';
+import { NotificationBell } from '@/components/shared/NotificationBell';
 
 export function Header() {
   const router = useRouter();
@@ -195,6 +196,9 @@ export function Header() {
 
           {isMounted && user ? (
             <div className="flex items-center gap-2">
+              {/* Notification bell (in-app notifications) */}
+              <NotificationBell />
+
               {/* Messages icon with unread badge */}
               <Link
                 href="/messages"

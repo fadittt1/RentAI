@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingCard } from '@/components/ui/LoadingCard';
 import { api } from '@/lib/api/http';
 import { useWallet } from '@/lib/api/hooks/useWallet';
+import { toast } from '@/components/ui/Toaster';
 
 export default function BookingPage() {
   const router = useRouter();
@@ -98,8 +99,14 @@ export default function BookingPage() {
       }
       setPaid(true);
     } catch (error: any) {
-      console.error('Payment failed:', error);
-      alert(error?.body?.error?.message || error?.body?.message || 'Payment failed');
+      toast({
+        title: 'Payment failed',
+        message:
+          error?.body?.error?.message ||
+          error?.body?.message ||
+          'Please try again or use a different method.',
+        variant: 'error',
+      });
     }
   };
 
@@ -574,14 +581,14 @@ export default function BookingPage() {
                   <label htmlFor="terms" className="text-sm text-gray-700">
                     I agree to the{' '}
                     <Link
-                      href="#"
+                      href="/help"
                       className="font-medium text-blue-500 transition hover:text-blue-600"
                     >
                       rental terms and conditions
                     </Link>
                     ,{' '}
                     <Link
-                      href="#"
+                      href="/help"
                       className="font-medium text-blue-500 transition hover:text-blue-600"
                     >
                       cancellation policy

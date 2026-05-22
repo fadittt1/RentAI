@@ -14,6 +14,7 @@ import { RequestVerificationDto } from './dto/request-verification.dto';
 import * as bcrypt from 'bcrypt';
 import type { JwtPayload, Role } from '../../common/auth/jwt-payload';
 import { VerificationService } from './verification.service';
+import { RefreshTokenService } from './refresh-token.service';
 
 @Injectable()
 export class AuthService {
@@ -24,6 +25,7 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private verificationService: VerificationService,
+    private refreshTokens: RefreshTokenService,
   ) { }
 
   async register(registerDto: RegisterDto) {
@@ -150,27 +152,112 @@ export class AuthService {
         secret: this.configService.get<string>('refreshToken.secret'),
       });
 
+      // The token signature is valid — but has it been logged out or rotated?
+      const live = await this.refreshTokens.isLive(refreshToken);
+      if (!live) {
+        this.logger.warn(`Refresh rejected — token is revoked or unknown: sub=${payload.sub}`);
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
       const user = await this.usersService.findOne(payload.sub);
       if (!user) {
         throw new UnauthorizedException('User not found');
       }
 
-      const accessToken = this.jwtService.sign(
-        {
-          sub: user.id,
-          email: user.email || user.phone,
-          role: this.getRoleForUser(user),
-        } satisfies JwtPayload,
-        {
-          secret: this.configService.get<string>('jwt.secret'),
-          expiresIn: this.configService.get<string>('jwt.expiresIn'),
-        },
+      // Rotate: revoke the just-used refresh token, issue a fresh pair.
+      // Catches replay (an attacker reusing a stolen token will be locked out
+      // the moment the legitimate user refreshes).
+      await this.refreshTokens.revoke(refreshToken);
+
+      const tokens = await this.generateTokens(
+        user.id,
+        user.email || user.phone || user.id,
+        this.getRoleForUser(user),
       );
 
-      return { accessToken };
+      return tokens;
     } catch (_error) {
+      if (_error instanceof UnauthorizedException) throw _error;
       throw new UnauthorizedException('Invalid refresh token');
     }
+  }
+
+  /**
+   * Revoke a refresh token so it can no longer be exchanged for an access
+   * token. Idempotent: silently succeeds whether or not the token was live.
+   * We intentionally do not throw on unknown tokens so a malformed body from
+   * the client doesn't leak "this string was a valid token".
+   */
+  async logout(refreshToken: string | undefined): Promise<{ message: string }> {
+    if (refreshToken) {
+      try {
+        // Verify shape first so we don't pollute the table with garbage hashes
+        this.jwtService.verify<JwtPayload>(refreshToken, {
+          secret: this.configService.get<string>('refreshToken.secret'),
+        });
+        await this.refreshTokens.revoke(refreshToken);
+      } catch {
+        // Invalid or expired token — nothing to revoke, still a successful logout
+      }
+    }
+    return { message: 'Signed out' };
+  }
+
+  /**
+   * Revoke every refresh token belonging to a user. Used by the "sign out
+   * everywhere" button — the caller still has to clear their own local state,
+   * but every *other* device with an open session is dead the moment its
+   * access token expires (≤ 15min by default).
+   */
+  async logoutAll(userId: string): Promise<{ revokedCount: number }> {
+    const count = await this.refreshTokens.revokeAllForUser(userId);
+    this.logger.log(`Signed out everywhere for user ${userId} (${count} sessions)`);
+    return { revokedCount: count };
+  }
+
+  /**
+   * Change a user's password. Requires the current password — never trust
+   * "user is logged in" alone for an action this destructive (stolen access
+   * token would otherwise let the attacker lock the real owner out).
+   *
+   * Revokes every refresh token afterwards. The caller's own access token
+   * keeps working until it expires; every other open session dies on the
+   * next refresh.
+   */
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<{ message: string }> {
+    const user = await this.usersService.findOne(userId);
+    if (!user) throw new UnauthorizedException('User not found');
+
+    if (!user.passwordHash) {
+      throw new BadRequestException(
+        'This account uses Google sign-in and has no password. ' +
+          'Set one from the password reset flow instead.',
+      );
+    }
+
+    const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!ok) {
+      this.logger.warn(`Change-password rejected — wrong current password for ${userId}`);
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    if (currentPassword === newPassword) {
+      throw new BadRequestException('New password must be different from the current one');
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await this.usersService.update(userId, { passwordHash: newHash });
+
+    // Invalidate everywhere — if the password was changed because something
+    // was off, every existing session should be killed.
+    const revoked = await this.refreshTokens.revokeAllForUser(userId);
+    this.logger.log(`Password changed for ${userId} (${revoked} sessions revoked)`);
+
+    return { message: 'Password updated. Other devices have been signed out.' };
   }
 
   async requestVerification(userId: string, dto: RequestVerificationDto) {
@@ -206,6 +293,17 @@ export class AuthService {
     const refreshToken = this.jwtService.sign(payload, {
       secret: this.configService.get<string>('refreshToken.secret'),
       expiresIn: this.configService.get<string>('refreshToken.expiresIn'),
+    });
+
+    // Decode (don't re-verify) to pull the exp claim — keeps a single source of truth.
+    const decoded = this.jwtService.decode(refreshToken) as { exp?: number } | null;
+    const expiresAt = decoded?.exp
+      ? new Date(decoded.exp * 1000)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    await this.refreshTokens.store({
+      userId,
+      rawToken: refreshToken,
+      expiresAt,
     });
 
     return { accessToken, refreshToken };

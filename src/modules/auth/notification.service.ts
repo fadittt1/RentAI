@@ -56,6 +56,45 @@ export class NotificationService {
     }
   }
 
+  /**
+   * Generic transactional email used by the booking-reminder cron. We keep
+   * this on NotificationService so all outbound mail funnels through one
+   * Resend setup (rate limits, sender domain, dev-mode console fallback).
+   */
+  async sendTransactionalEmail(input: {
+    to: string;
+    subject: string;
+    html: string;
+  }): Promise<void> {
+    const resendKey = this.configService.get<string>('RESEND_API_KEY');
+    if (!resendKey?.trim()) {
+      this.logger.warn(`[DEV] Email to ${input.to}: ${input.subject}`);
+      return;
+    }
+    const from = this.configService.get<string>(
+      'VERIFY_FROM_EMAIL',
+      'noreply@renteverything.app',
+    );
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${resendKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from,
+        to: input.to,
+        subject: input.subject,
+        html: input.html,
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      this.logger.error(`Resend transactional email failed (${response.status}): ${body}`);
+      throw new Error('Failed to send transactional email');
+    }
+  }
+
   async sendPasswordResetUnavailableEmail(to: string): Promise<void> {
     const resendKey = this.configService.get<string>('RESEND_API_KEY');
     if (!resendKey?.trim()) {

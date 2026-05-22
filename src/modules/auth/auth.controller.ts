@@ -22,6 +22,8 @@ import { VerifyDto } from './dto/verify.dto';
 import { RequestVerificationDto } from './dto/request-verification.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { LogoutDto } from './dto/logout.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { JwtRefreshGuard } from '../../common/guards/jwt-refresh.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -60,6 +62,56 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Token refreshed successfully' })
   async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
     return this.authService.refresh(refreshTokenDto.refreshToken);
+  }
+
+  @Public()
+  @Post('logout')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Revoke a refresh token (sign out)',
+    description:
+      'Marks the refresh token revoked so it can no longer be exchanged for an ' +
+      'access token. Idempotent — calling without a token (or with a bad one) ' +
+      'still returns 200 so the client can always perform a clean local logout.',
+  })
+  @ApiResponse({ status: 200, description: 'Signed out' })
+  async logout(@Body() dto: LogoutDto) {
+    return this.authService.logout(dto.refreshToken);
+  }
+
+  @Post('logout-all')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Sign out of every device for the current user',
+    description:
+      'Revokes every refresh token for this account. Other devices keep ' +
+      'working until their current access token expires (≤ 15min), then they ' +
+      'are forced to log in again.',
+  })
+  @ApiResponse({ status: 200, description: 'All sessions revoked' })
+  async logoutAll(@Request() req: any) {
+    return this.authService.logoutAll(req.user.sub);
+  }
+
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Change the current user\'s password',
+    description:
+      'Requires the current password to confirm. On success, every other ' +
+      'session is invalidated.',
+  })
+  @ApiResponse({ status: 200, description: 'Password updated' })
+  async changePassword(@Request() req: any, @Body() dto: ChangePasswordDto) {
+    return this.authService.changePassword(
+      req.user.sub,
+      dto.currentPassword,
+      dto.newPassword,
+    );
   }
 
   @Post('request-verification')

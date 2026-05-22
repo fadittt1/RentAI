@@ -154,6 +154,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    // Best-effort: tell the server to revoke the refresh token. We don't await
+    // or block on this — if the network is dead or the token is already bad,
+    // the client-side cleanup below still runs.
+    const { refreshToken } = readAuth();
+    if (refreshToken) {
+      api.post('/auth/logout', { refreshToken }).catch(() => {
+        // Swallow — a failed revoke must not prevent local sign-out
+      });
+    }
+
     clearAuth();
     if (typeof window !== 'undefined') {
       // Notify other tabs

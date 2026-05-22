@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { FlouciProvider } from './flouci.provider';
+import { D17Provider } from './d17.provider';
 import { PaymentProvider, ProviderKey } from './payment-provider.interface';
 
 /**
@@ -10,11 +11,11 @@ import { PaymentProvider, ProviderKey } from './payment-provider.interface';
 export class PaymentProviderRegistry {
   private readonly providers: Map<ProviderKey, PaymentProvider>;
 
-  constructor(flouci: FlouciProvider) {
+  constructor(flouci: FlouciProvider, d17: D17Provider) {
     this.providers = new Map<ProviderKey, PaymentProvider>([
       [flouci.key, flouci],
+      [d17.key, d17],
       // ['konnect', konnect],
-      // ['d17', d17],
     ]);
   }
 

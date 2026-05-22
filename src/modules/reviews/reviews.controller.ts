@@ -33,6 +33,23 @@ export class ReviewsController {
     return this.reviewsService.findByUser(userId);
   }
 
+  @Get('listing/:listingId')
+  @Public()
+  @ApiOperation({ summary: 'Get renter-to-host reviews on a listing' })
+  findByListing(@Param('listingId') listingId: string) {
+    return this.reviewsService.findByListing(listingId);
+  }
+
+  @Get('me/pending')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Completed bookings where the current user owes a review',
+  })
+  pending(@Request() req) {
+    return this.reviewsService.pendingForUser(req.user.sub);
+  }
+
   @Get(':id')
   @Public()
   @ApiOperation({ summary: 'Get review details' })

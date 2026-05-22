@@ -72,16 +72,19 @@ export class ListingsService {
       // Generate UUID in Node.js for portability (no pgcrypto extension needed)
       const listingId = crypto.randomUUID();
 
+      const cancellationPolicy = (createListingDto as any).cancellationPolicy ?? 'MODERATE';
       await this.prisma.$executeRaw`
         INSERT INTO listings (
           id, "hostId", title, description, "categoryId", images, "pricePerDay",
-          location, address, rules, availability, "isActive", status, "bookingType", "createdAt", "updatedAt"
+          location, address, rules, availability, "isActive", status, "bookingType",
+          "cancellation_policy", "createdAt", "updatedAt"
         ) VALUES (
           ${listingId}::uuid, ${hostId}, ${createListingDto.title}, ${createListingDto.description},
           ${createListingDto.categoryId}, ARRAY[]::text[], ${createListingDto.pricePerDay},
           ST_SetSRID(ST_GeomFromText(${locationWKT}), 4326), ${createListingDto.address},
           ${createListingDto.rules || null}, ${createListingDto.availability ? JSON.stringify(createListingDto.availability) : null}::jsonb,
-          true, 'ACTIVE'::"ListingStatus", ${bookingType}::"BookingType", NOW(), NOW()
+          true, 'ACTIVE'::"ListingStatus", ${bookingType}::"BookingType",
+          ${cancellationPolicy}::"CancellationPolicy", NOW(), NOW()
         )
         RETURNING *
       `;

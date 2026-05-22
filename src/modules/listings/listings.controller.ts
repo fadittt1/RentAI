@@ -22,6 +22,7 @@ import {
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { ListingsService } from './listings.service';
+import { LastMinuteService } from './last-minute.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { FilterListingsDto } from './dto/filter-listings.dto';
@@ -75,7 +76,34 @@ const multerOptions = {
 @ApiTags('listings')
 @Controller('api/listings')
 export class ListingsController {
-  constructor(private readonly listingsService: ListingsService) {}
+  constructor(
+    private readonly listingsService: ListingsService,
+    private readonly lastMinuteService: LastMinuteService,
+  ) {}
+
+  /**
+   * Last-minute deals: high-quality listings with empty calendars in the
+   * next 7 days. Public — designed to be the homepage's "spontaneous booking"
+   * surface. Optionally filtered by lat/lng + radius for "near me".
+   */
+  @Get('last-minute')
+  @Public()
+  @ApiOperation({
+    summary: 'High-quality listings with empty calendars in the next 7 days',
+  })
+  lastMinute(
+    @Query('lat') lat?: string,
+    @Query('lng') lng?: string,
+    @Query('radiusKm') radiusKm?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.lastMinuteService.findDeals({
+      lat: lat ? Number(lat) : undefined,
+      lng: lng ? Number(lng) : undefined,
+      radiusKm: radiusKm ? Number(radiusKm) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
 
   @Post()
   @UseGuards(JwtAuthGuard, HostGuard)

@@ -1,15 +1,22 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { Conversation, Message } from '@prisma/client';
+import { ContactDetectorService } from '../common/anti-leak/contact-detector.service';
 
 @Injectable()
 export class ChatService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(ChatService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private contactDetector: ContactDetectorService,
+  ) {}
 
   /**
    * Get or create a conversation between two users
@@ -97,12 +104,23 @@ export class ChatService {
       );
     }
 
+    // Anti-leak: mask any phone / email / social handles before persisting.
+    // The original (unmasked) text is never stored — it's gone after this call.
+    const scan = this.contactDetector.scan(content);
+    if (scan.detected) {
+      this.logger.warn(
+        `Anti-leak: masked contact info in message from ${senderId} (kinds: ${scan.kinds.join(',')})`,
+      );
+    }
+
     // Create message and update conversation
     const message = await this.prisma.message.create({
       data: {
         conversationId,
         senderId,
-        content,
+        content: scan.masked,
+        contactLeak: scan.detected,
+        contactLeakKinds: scan.kinds,
       },
       include: {
         sender: {

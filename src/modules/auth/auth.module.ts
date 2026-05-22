@@ -11,6 +11,7 @@ import { UsersModule } from '../users/users.module';
 import { NotificationService } from './notification.service';
 import { VerificationService } from './verification.service';
 import { PasswordResetService } from './password-reset.service';
+import { RefreshTokenService } from './refresh-token.service';
 
 @Module({
   imports: [
@@ -36,7 +37,8 @@ import { PasswordResetService } from './password-reset.service';
     NotificationService,
     VerificationService,
     PasswordResetService,
+    RefreshTokenService,
   ],
-  exports: [AuthService],
+  exports: [AuthService, NotificationService],
 })
 export class AuthModule {}

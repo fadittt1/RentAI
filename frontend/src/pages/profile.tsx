@@ -13,6 +13,9 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { toast } from '@/components/ui/Toaster';
 import { VerifyAccountModal } from '@/components/auth/VerifyAccountModal';
 import { BecomeHostModal } from '@/components/host/BecomeHostModal';
+import { PendingReviewsCard } from '@/components/reviews/PendingReviewsCard';
+import { KycUploadCard } from '@/components/host/KycUploadCard';
+import { TrustBadge } from '@/components/shared/TrustBadge';
 import { useDebounce } from '@/lib/utils/useDebounce';
 import { useUserLocation } from '@/lib/hooks/useUserLocation';
 import { UsersService } from '@/lib/api/generated/services/UsersService';
@@ -41,6 +44,41 @@ export default function ProfilePage() {
   const [homeSelected, setHomeSelected] = useState<{ lat: number; lng: number; cityName: string } | null>(null);
   const [homeSaving, setHomeSaving] = useState(false);
   const homeInputRef = useRef<HTMLDivElement>(null);
+
+  // Avatar upload — the camera button on the avatar bubble triggers this.
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const handleAvatarPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      toast({
+        title: 'File too large',
+        message: 'Maximum 4 MB.',
+        variant: 'error',
+      });
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+      return;
+    }
+    setAvatarUploading(true);
+    try {
+      const { api } = await import('@/lib/api/http');
+      const form = new FormData();
+      form.append('avatar', file);
+      await api.post('/users/me/avatar', form);
+      await refreshUser();
+      toast({ title: 'Photo updated', variant: 'success' });
+    } catch (e: any) {
+      toast({
+        title: 'Upload failed',
+        message: e?.response?.data?.message ?? 'Please try again.',
+        variant: 'error',
+      });
+    } finally {
+      setAvatarUploading(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
+  };
   const dHome = useDebounce(homeInput, 350);
 
   useEffect(() => {
@@ -400,8 +438,23 @@ export default function ProfilePage() {
                     }}
                   />
                 </div>
-                <button className="absolute bottom-0 right-0 flex h-10 w-10 items-center justify-center rounded-full bg-blue-500 shadow-lg transition hover:bg-blue-600">
-                  <i className="fa-solid fa-camera text-sm text-white"></i>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/webp"
+                  className="hidden"
+                  onChange={handleAvatarPick}
+                />
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  disabled={avatarUploading}
+                  aria-label="Change profile photo"
+                  className="absolute bottom-0 right-0 flex h-10 w-10 items-center justify-center rounded-full bg-blue-500 shadow-lg transition hover:bg-blue-600 disabled:opacity-60"
+                >
+                  <i
+                    className={`text-sm text-white fa-solid ${avatarUploading ? 'fa-circle-notch fa-spin' : 'fa-camera'}`}
+                  ></i>
                 </button>
               </div>
 
@@ -425,11 +478,27 @@ export default function ProfilePage() {
                     <span>{displayLocation}</span>
                   </div>
                 </div>
-                <div className="mb-4 flex items-center space-x-2">
+                <div className="mb-4 flex items-center flex-wrap gap-2">
                   <div className="flex items-center rounded-full bg-blue-100 px-4 py-1 text-sm font-medium text-blue-700">
                     <i className="fa-solid fa-user mr-2"></i>
                     Currently a {isHost ? 'Host' : 'Renter'}
                   </div>
+                  {typeof (displayUser as any)?.renterTrustScore === 'number' ? (
+                    <TrustBadge
+                      score={(displayUser as any).renterTrustScore}
+                      role="RENTER"
+                      force
+                      size="md"
+                    />
+                  ) : null}
+                  {isHost && typeof (displayUser as any)?.qualityScore === 'number' ? (
+                    <TrustBadge
+                      score={(displayUser as any).qualityScore}
+                      role="HOST"
+                      force
+                      size="md"
+                    />
+                  ) : null}
                   <span className="text-gray-400">•</span>
                   <span className="text-sm text-gray-600">
                     Member since {memberSince}
@@ -492,6 +561,14 @@ export default function ProfilePage() {
               </div>
             )}
           </div>
+        </div>
+      </section>
+
+      {/* Pending reviews — both renter and host get prompted */}
+      <section className="bg-gray-50 pt-6">
+        <div className="mx-auto max-w-7xl px-6 space-y-4">
+          <PendingReviewsCard />
+          {isHostFlag ? <KycUploadCard /> : null}
         </div>
       </section>
 
@@ -1023,6 +1100,8 @@ export default function ProfilePage() {
         </div>
       </section>
 
+      <SecuritySection />
+
       <VerifyAccountModal
         open={verifyModalOpen}
         onClose={() => setVerifyModalOpen(false)}
@@ -1047,5 +1126,233 @@ export default function ProfilePage() {
         }}
       />
     </Layout>
+  );
+}
+
+function SecuritySection() {
+  const { user, logout } = useAuth();
+  // Backend now exposes a derived `hasPassword` on /users/me. OAuth-only
+  // users have hasPassword === false and can't change a password they don't have.
+  const isOauthOnly = !!user && (user as any).hasPassword === false;
+  const [signingOut, setSigningOut] = useState(false);
+  const [pwOpen, setPwOpen] = useState(false);
+
+  const signOutEverywhere = async () => {
+    const ok = window.confirm(
+      'Sign out of every device, including this one? You will need to log back in.',
+    );
+    if (!ok) return;
+    setSigningOut(true);
+    try {
+      const { api } = await import('@/lib/api/http');
+      const res = await api.post('/auth/logout-all');
+      const count = res.data?.revokedCount ?? 0;
+      toast({
+        title: 'Signed out everywhere',
+        message:
+          count > 0
+            ? `${count} session${count === 1 ? '' : 's'} revoked.`
+            : 'All sessions revoked.',
+        variant: 'success',
+      });
+      logout();
+    } catch (e: any) {
+      toast({
+        title: 'Could not sign out everywhere',
+        message: e?.response?.data?.message ?? 'Please try again.',
+        variant: 'error',
+      });
+      setSigningOut(false);
+    }
+  };
+
+  return (
+    <section className="bg-white py-12">
+      <div className="mx-auto max-w-7xl px-6">
+        <h2 className="mb-8 text-3xl font-bold text-gray-900">Security</h2>
+
+        <div className="space-y-4">
+          {/* Change password */}
+          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-8">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Change your password
+                </h3>
+                <p className="mt-1 text-sm text-gray-600">
+                  {isOauthOnly
+                    ? 'This account signs in with Google and has no password. Use the password reset flow to set one.'
+                    : 'You will be asked for your current password. Other devices are signed out on success.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPwOpen((v) => !v)}
+                disabled={!!isOauthOnly}
+                className="shrink-0 rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-800 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <i className="fa-solid fa-key mr-2" />
+                {pwOpen ? 'Close' : 'Change password'}
+              </button>
+            </div>
+
+            {pwOpen && !isOauthOnly ? (
+              <ChangePasswordForm onDone={() => setPwOpen(false)} />
+            ) : null}
+          </div>
+
+          {/* Sign out everywhere */}
+          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-8">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Sign out of every device
+                </h3>
+                <p className="mt-1 text-sm text-gray-600">
+                  If you've lost a phone or shared your computer, revoke every
+                  active session. You'll be logged out here too and will need to
+                  log back in.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={signOutEverywhere}
+                disabled={signingOut}
+                className="shrink-0 rounded-xl border border-red-200 bg-white px-5 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {signingOut ? (
+                  <>
+                    <i className="fa-solid fa-circle-notch fa-spin mr-2" />
+                    Signing out…
+                  </>
+                ) : (
+                  <>
+                    <i className="fa-solid fa-right-from-bracket mr-2" />
+                    Sign out everywhere
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ChangePasswordForm({ onDone }: { onDone: () => void }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (newPassword.length < 6) {
+      setError('New password must be at least 6 characters.');
+      return;
+    }
+    if (newPassword !== confirm) {
+      setError("New passwords don't match.");
+      return;
+    }
+    if (newPassword === currentPassword) {
+      setError('New password must be different from the current one.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const { api } = await import('@/lib/api/http');
+      await api.post('/auth/change-password', { currentPassword, newPassword });
+      toast({
+        title: 'Password updated',
+        message: 'Other devices have been signed out.',
+        variant: 'success',
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirm('');
+      onDone();
+    } catch (e: any) {
+      const status = e?.response?.status;
+      const message = e?.response?.data?.message;
+      if (status === 401) {
+        setError('Current password is incorrect.');
+      } else if (status === 429) {
+        setError('Too many attempts. Please wait a minute and try again.');
+      } else {
+        setError(message ?? 'Could not change your password. Please try again.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="mt-6 grid gap-4 border-t border-gray-200 pt-6">
+      <div>
+        <label className="text-sm font-medium text-gray-700">Current password</label>
+        <input
+          type="password"
+          autoComplete="current-password"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+          required
+          className="mt-1 w-full rounded-lg border border-border bg-white px-3 py-2"
+        />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="text-sm font-medium text-gray-700">New password</label>
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            required
+            className="mt-1 w-full rounded-lg border border-border bg-white px-3 py-2"
+          />
+          <p className="mt-1 text-xs text-gray-500">At least 6 characters.</p>
+        </div>
+        <div>
+          <label className="text-sm font-medium text-gray-700">Confirm new password</label>
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            required
+            className="mt-1 w-full rounded-lg border border-border bg-white px-3 py-2"
+          />
+        </div>
+      </div>
+
+      {error ? (
+        <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="flex items-center justify-end gap-3">
+        <button
+          type="button"
+          onClick={onDone}
+          className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={submitting}
+          className="rounded-xl bg-primary px-5 py-2 text-sm font-semibold text-white hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {submitting ? 'Saving…' : 'Update password'}
+        </button>
+      </div>
+    </form>
   );
 }

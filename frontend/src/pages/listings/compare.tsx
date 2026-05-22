@@ -7,6 +7,7 @@ import { ChevronLeft, Info, Star, ShieldCheck, MapPin, Tag } from 'lucide-react'
 
 import { useCompare } from '@/lib/context/CompareContext';
 import { useEffect } from 'react';
+import { API_URL } from '@/lib/api/env';
 
 export default function ComparePage() {
   const router = useRouter();
@@ -71,7 +72,7 @@ export default function ComparePage() {
                   <th key={l.id} className="p-8 border-b border-slate-100 min-w-[300px]">
                      <div className="aspect-[16/10] bg-slate-100 rounded-2xl overflow-hidden mb-6 shadow-sm border border-slate-200">
                         <img 
-                          src={l.images?.[0]?.startsWith('http') ? l.images[0] : (l.images?.[0] ? `http://localhost:3000${l.images[0]}` : '/placeholder.png')} 
+                          src={l.images?.[0]?.startsWith('http') ? l.images[0] : (l.images?.[0] ? `${API_URL}${l.images[0]}` : '/placeholder.png')}
                           className="w-full h-full object-cover"
                           alt={l.title}
                         />

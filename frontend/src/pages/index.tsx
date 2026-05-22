@@ -29,7 +29,7 @@ export default function HomePage() {
   const [q, setQ] = useState('');
   const dq = useDebounce(q, 350);
 
-  const { lat, lng, cityName, loading: locLoading, isDefault, permissionDenied, fromSavedHome, requestLocation } = useUserLocation();
+  const { lat, lng, cityName, loading: locLoading, isDefault, permissionDenied, fromSavedHome, requestLocation, resetLocation } = useUserLocation();
 
   // "Where" field — syncs to detected city, user can override via autocomplete
   const [where, setWhere] = useState('');
@@ -129,6 +129,17 @@ export default function HomePage() {
                       )
                     }
                   />
+                  {/* Inline reset — visible when we auto-detected a city the user disagrees with */}
+                  {!locLoading && !isDefault && !fromSavedHome && (
+                    <button
+                      type="button"
+                      onClick={resetLocation}
+                      className="mt-1 text-[11px] text-gray-400 hover:text-blue-500 transition"
+                      title="Clear and re-detect"
+                    >
+                      Wrong? <span className="underline">Reset location</span>
+                    </button>
+                  )}
                 </div>
 
                 <div className="flex items-center px-4">
@@ -164,7 +175,9 @@ export default function HomePage() {
                       Click the <strong>🔒 lock icon</strong> in the address bar → <em>Site settings</em> → set <strong>Location</strong> to <em>Allow</em>, then refresh.
                     </>
                   ) : (
-                    <>Showing results near <strong>Tunis</strong> (default).</>
+                    <>
+                      Showing results near <strong>Tunis</strong> (default). On desktops, browser geolocation is often inaccurate — pick your city in the Where field for better matches.
+                    </>
                   )}
                 </span>
                 {!permissionDenied && (

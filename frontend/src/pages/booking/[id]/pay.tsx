@@ -8,6 +8,7 @@ import { formatTnd } from '@/lib/utils/format';
 import { LoadingCard } from '@/components/ui/LoadingCard';
 import { InlineError } from '@/components/ui/InlineError';
 import { toast } from '@/components/ui/Toaster';
+import { BookingProtectionBadge } from '@/components/shared/BookingProtectionBadge';
 
 type ProviderKey = 'flouci' | 'konnect' | 'd17';
 
@@ -36,9 +37,8 @@ const PROVIDERS: ProviderOption[] = [
   {
     key: 'd17',
     label: 'D17',
-    blurb: 'Pay directly from the BIAT D17 mobile app.',
+    blurb: 'Pay from the BIAT D17 mobile app or any Tunisian bank card.',
     icon: 'fa-solid fa-mobile-screen',
-    comingSoon: true,
   },
 ];
 
@@ -231,7 +231,11 @@ export default function BookingPayPage() {
                 </p>
               ) : null}
 
-              <p className="mt-6 text-xs text-slate-500">
+              <div className="mt-6">
+                <BookingProtectionBadge variant="card" />
+              </div>
+
+              <p className="mt-4 text-xs text-slate-500">
                 Payments are processed by a third-party provider. Your card and
                 banking details never touch our servers. A 10% platform fee is
                 included in the amount above.

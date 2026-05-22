@@ -1,6 +1,8 @@
 // Geo helpers — call the backend proxy so we can apply User-Agent + cache + rate-limit
 // on the server side, instead of leaking each user's IP to Nominatim.
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+import { API_URL } from './env';
+
+const API = API_URL;
 
 export interface GeoSearchResult {
   place_id: number;

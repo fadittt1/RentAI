@@ -111,6 +111,49 @@ export class UsersService {
     return user;
   }
 
+  /**
+   * Self-profile shape: everything except the password hash, plus a derived
+   * `hasPassword` boolean for the frontend so it can show / hide the
+   * "Change password" affordance.
+   *
+   * The internal `findOne` returns the raw row (passwordHash included)
+   * because auth still needs it for bcrypt.compare; HTTP handlers must use
+   * this instead.
+   */
+  async findOneSafe(id: string) {
+    const user = await this.findOne(id);
+    const { passwordHash, ...safe } = user;
+    return { ...safe, hasPassword: !!passwordHash };
+  }
+
+  /**
+   * Public profile shape: only the fields anyone is allowed to see about
+   * another user (e.g. on a listing detail page). Drops contact info, the
+   * Google id, the password hash, internal moderation timestamps, and home
+   * location coordinates.
+   */
+  async findOnePublic(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        avatarUrl: true,
+        isHost: true,
+        verifiedEmail: true,
+        verifiedPhone: true,
+        ratingAvg: true,
+        ratingCount: true,
+        createdAt: true,
+        homeCityName: true,
+      },
+    });
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+    return user;
+  }
+
   async findByEmailOrPhone(identifier: string): Promise<User | null> {
     // Try email first, then phone
     const user = await this.prisma.user.findFirst({

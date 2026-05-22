@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ChatService } from './chat.service';
 import { ChatGateway } from './chat.gateway';
 import { ChatController } from './chat.controller';
+import { ContactDetectorService } from '../common/anti-leak/contact-detector.service';
 
 @Module({
   imports: [
@@ -19,7 +20,7 @@ import { ChatController } from './chat.controller';
     }),
   ],
   controllers: [ChatController],
-  providers: [ChatService, ChatGateway],
+  providers: [ChatService, ChatGateway, ContactDetectorService],
   exports: [ChatService],
 })
 export class ChatModule {}

@@ -1140,13 +1140,19 @@ export class DemoSeedService {
 
     for (const booking of completedBookings) {
       const existing = await this.prisma.review.findUnique({
-        where: { bookingId: booking.id },
+        where: {
+          bookingId_authorRole: {
+            bookingId: booking.id,
+            authorRole: 'RENTER',
+          },
+        },
       });
       if (existing) continue;
       await this.prisma.review.create({
         data: {
           bookingId: booking.id,
           authorId: booking.renterId,
+          authorRole: 'RENTER',
           targetUserId: booking.hostId,
           listingId: booking.listingId,
           rating: Math.floor(Math.random() * 2) + 4, // 4 or 5

@@ -1,0 +1,20 @@
+User-agent: *
+Allow: /
+Allow: /listings/
+Allow: /search
+Allow: /help
+Allow: /last-minute
+
+Disallow: /admin/
+Disallow: /auth/
+Disallow: /booking/
+Disallow: /client/
+Disallow: /host/
+Disallow: /messages
+Disallow: /profile
+Disallow: /rentals
+Disallow: /wishlist
+Disallow: /disputes
+Disallow: /api/
+
+Sitemap: https://renteverything.tn/sitemap.xml

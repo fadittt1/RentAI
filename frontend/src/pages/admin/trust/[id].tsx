@@ -23,6 +23,7 @@ import {
   UserX
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { toast } from '@/components/ui/Toaster';
 
 export default function UserTrustDetailPage() {
   const router = useRouter();
@@ -57,7 +58,11 @@ export default function UserTrustDetailPage() {
 
   const handleUpdateTier = async () => {
     if (!tierReason) {
-      alert('Please provide a reason for the tier override.');
+      toast({
+        title: 'Reason required',
+        message: 'Please provide a reason for the tier override.',
+        variant: 'error',
+      });
       return;
     }
     try {

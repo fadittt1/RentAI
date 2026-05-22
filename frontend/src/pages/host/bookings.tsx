@@ -12,6 +12,7 @@ import { LoadingCard } from '@/components/ui/LoadingCard';
 import { InlineError } from '@/components/ui/InlineError';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { toast } from '@/components/ui/Toaster';
+import { TrustBadge } from '@/components/shared/TrustBadge';
 
 export default function HostBookingsPage() {
   const router = useRouter();
@@ -164,9 +165,17 @@ export default function HostBookingsPage() {
                       <div className="flex items-center space-x-3">
                         <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200" />
                         <div>
-                          <p className="font-semibold text-gray-900">
-                            {renterName}
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-gray-900">
+                              {renterName}
+                            </p>
+                            {typeof (b as any).renter?.renterTrustScore === 'number' ? (
+                              <TrustBadge
+                                score={(b as any).renter.renterTrustScore}
+                                role="RENTER"
+                              />
+                            ) : null}
+                          </div>
                           <p className="text-sm text-gray-500">
                             Renting: {listingTitle}
                           </p>

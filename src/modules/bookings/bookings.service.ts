@@ -20,6 +20,8 @@ import { PaymentsService } from '../payments/payments.service';
 import { CancellationPolicyService } from '../../common/policies/cancellation-policy.service';
 import { ChatService } from '../../chat/chat.service';
 import { WalletService } from '../wallet/wallet.service';
+import { QualityScoreService } from '../quality/quality-score.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 /**
  * Maps internal DB booking statuses to stable MVP-facing vocabulary.
@@ -78,6 +80,8 @@ export class BookingsService {
     private cancellationPolicyService: CancellationPolicyService,
     private chatService: ChatService,
     private walletService: WalletService,
+    private qualityScore: QualityScoreService,
+    private notifications: NotificationsService,
   ) {
     this.commissionPercentage =
       this.configService.get<number>('commission.percentage') || 0.1;
@@ -226,6 +230,16 @@ export class BookingsService {
       // Non-fatal — conversation can be created on demand from the UI
     }
 
+    // Notify the host that a new booking request came in.
+    this.notifications.create({
+      userId: booking.hostId,
+      kind: 'BOOKING_REQUESTED',
+      title: 'New booking request',
+      body: `${(listing as any).title} · ${startDate}${endDate !== startDate ? ` → ${endDate}` : ''}`,
+      link: '/host/bookings',
+      payload: { bookingId: booking.id },
+    });
+
     return { ...withDisplay(booking), conversationId };
   }
 
@@ -240,8 +254,30 @@ export class BookingsService {
             category: true,
           },
         },
-        renter: true,
-        host: true,
+        // Only safe user fields. `renter: true` previously returned the full
+        // row, including passwordHash — never expose that over HTTP.
+        renter: {
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true,
+            verifiedEmail: true,
+            verifiedPhone: true,
+            idVerifiedAt: true,
+            renterTrustScore: true,
+          },
+        },
+        host: {
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true,
+            verifiedEmail: true,
+            verifiedPhone: true,
+            idVerifiedAt: true,
+            qualityScore: true,
+          },
+        },
         Conversation: {
           select: { id: true },
           take: 1,
@@ -366,6 +402,16 @@ export class BookingsService {
         data: { status: 'confirmed' },
       });
       return withDisplay(updated);
+    }).then((result) => {
+      this.notifications.create({
+        userId: (result as any).renterId,
+        kind: 'BOOKING_ACCEPTED',
+        title: 'Your booking was accepted',
+        body: 'You can pay now to lock in the dates.',
+        link: `/booking/${(result as any).id}/pay`,
+        payload: { bookingId: (result as any).id },
+      });
+      return result;
     });
   }
 
@@ -410,6 +456,16 @@ export class BookingsService {
       });
 
       return withDisplay(updated);
+    }).then((result) => {
+      this.notifications.create({
+        userId: (result as any).renterId,
+        kind: 'BOOKING_REJECTED',
+        title: 'Your booking request was declined',
+        body: 'The host wasn\'t able to accept these dates. Try another listing.',
+        link: '/rentals',
+        payload: { bookingId: (result as any).id },
+      });
+      return result;
     });
   }
 
@@ -530,12 +586,25 @@ export class BookingsService {
         },
       });
       return withDisplay(updated);
+    }).then((result) => {
+      this.notifications.create({
+        userId: (result as any).hostId,
+        kind: 'BOOKING_PAID',
+        title: 'Booking confirmed — payment received',
+        body: 'Get ready for your renter.',
+        link: '/host/bookings',
+        payload: { bookingId: (result as any).id },
+      });
+      return result;
     });
   }
 
   async cancel(id: string, userId: string): Promise<Booking> {
     // ── Phase 1: Load booking outside any transaction (read-only) ────────────
-    const booking = await this.prisma.booking.findUnique({ where: { id } });
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      include: { listing: { select: { cancellationPolicy: true } } },
+    });
     if (!booking) {
       throw new NotFoundException(`Booking with ID ${id} not found`);
     }
@@ -556,7 +625,8 @@ export class BookingsService {
     // Get payment intent to check payment status
     const paymentIntent = await this.paymentsService.findByBooking(id);
 
-    // Evaluate cancellation policy
+    // Evaluate cancellation policy — pulls the listing's host-chosen
+    // FLEXIBLE/MODERATE/STRICT policy through to the refund math.
     const decision = this.cancellationPolicyService.evaluateCancellation({
       actor,
       bookingStatus: booking.status as any,
@@ -565,6 +635,7 @@ export class BookingsService {
       endDate: new Date(booking.endDate),
       totalPrice: Number(booking.totalPrice),
       now: new Date(),
+      policy: (booking as any).listing?.cancellationPolicy ?? 'MODERATE',
     });
 
     // Policy validation
@@ -633,6 +704,27 @@ export class BookingsService {
         data: { status: 'cancelled' },
       });
       return withDisplay(updated);
+    }).then((result) => {
+      // Cancellation rate / late-cancel count are renter-trust inputs.
+      // Best-effort; never block the cancel response on a scoring miss.
+      this.qualityScore.recomputeRenter(booking.renterId).catch(() => undefined);
+
+      // Notify the counter-party who didn't trigger this cancel.
+      const cancelledBy = userId;
+      const otherUserId =
+        cancelledBy === booking.renterId ? booking.hostId : booking.renterId;
+      this.notifications.create({
+        userId: otherUserId,
+        kind: 'BOOKING_CANCELLED',
+        title: 'Booking cancelled',
+        body:
+          cancelledBy === booking.renterId
+            ? 'The renter cancelled this booking.'
+            : 'The host cancelled this booking. Any refund will be processed automatically.',
+        link: cancelledBy === booking.renterId ? '/host/bookings' : '/rentals',
+        payload: { bookingId: (result as any).id },
+      });
+      return result;
     });
   }
 
@@ -670,6 +762,30 @@ export class BookingsService {
       });
 
       return withDisplay(updated);
+    }).then((result) => {
+      // Completed-bookings count is a positive signal on renter trust + host quality.
+      this.qualityScore.recomputeRenter((result as any).renterId).catch(() => undefined);
+      this.qualityScore.recomputeHost((result as any).hostId).catch(() => undefined);
+
+      // Both sides get a "please leave a review" nudge.
+      const r = result as any;
+      this.notifications.create({
+        userId: r.renterId,
+        kind: 'BOOKING_COMPLETED',
+        title: 'Trip complete — leave a review',
+        body: 'A 30-second review helps the next renter pick the right listing.',
+        link: '/profile',
+        payload: { bookingId: r.id },
+      });
+      this.notifications.create({
+        userId: r.hostId,
+        kind: 'BOOKING_COMPLETED',
+        title: 'Booking complete — review your renter',
+        body: 'Help other hosts know what to expect.',
+        link: '/profile',
+        payload: { bookingId: r.id },
+      });
+      return result;
     });
   }
 

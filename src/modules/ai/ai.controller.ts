@@ -620,9 +620,6 @@ export class AiController {
     },
   })
   async classifyImages(@UploadedFiles() files: Express.Multer.File[]) {
-    // Debug: log how many files + buffer size to confirm multer parsed them
-    const summary = (files ?? []).map(f => `${f.originalname}(${f.buffer?.length ?? 0}b)`).join(', ');
-    console.log(`[classifyImages] received ${files?.length ?? 0} file(s): ${summary || 'none'}`);
     return this.imageClassifierService.classify(files ?? []);
   }
 }
