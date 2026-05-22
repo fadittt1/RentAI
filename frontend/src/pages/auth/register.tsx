@@ -1,10 +1,14 @@
 import Link from 'next/link';
+import { useState } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/lib/auth/AuthProvider';
+import { SocialAuthButtons } from '@/components/auth/SocialAuthButtons';
+
+type Intent = 'rent' | 'host';
 
 const schema = z
   .object({
@@ -23,6 +27,28 @@ const schema = z
 
 type FormValues = z.infer<typeof schema>;
 
+function safeNext(raw: unknown): string {
+  if (typeof raw !== 'string') return '/';
+  if (!raw.startsWith('/') || raw.startsWith('//')) return '/';
+  return raw;
+}
+
+function friendlyRegisterError(e: any): string {
+  const status = e?.status ?? e?.response?.status;
+  const body = e?.body ?? e?.response?.data;
+  const msg = String(
+    body?.error?.message ?? body?.message ?? e?.message ?? '',
+  ).toLowerCase();
+  if (msg.includes('email already')) return 'That email is already registered. Try logging in instead.';
+  if (msg.includes('phone already')) return 'That phone number is already registered. Try logging in instead.';
+  if (msg.includes('either email or phone')) return 'Please provide either an email or a phone number.';
+  if (status === 429) return 'Too many attempts. Please wait a minute and try again.';
+  if (msg.includes('network') || msg.includes('failed to fetch')) {
+    return 'Could not reach the server. Check your connection and try again.';
+  }
+  return 'Registration failed. Please try again.';
+}
+
 export default function RegisterPage() {
   const router = useRouter();
   const { register } = useAuth();
@@ -30,17 +56,28 @@ export default function RegisterPage() {
     resolver: zodResolver(schema),
     defaultValues: { email: '', phone: '' },
   });
+  const next = safeNext(router.query.next);
+  const [intent, setIntent] = useState<Intent>('rent');
+
+  // Where to send the user after a successful registration.
+  // - If they came from a protected page with ?next=, honor that.
+  // - Otherwise, hosts go to /profile (to verify and start hosting),
+  //   renters go to / (so they can immediately browse).
+  const destination = (): string => {
+    if (next !== '/') return next;
+    return intent === 'host' ? '/profile?onboard=host' : '/';
+  };
 
   return (
     <Layout>
       <div className="mx-auto max-w-md px-6 py-10">
-        <h1 className="text-2xl font-bold text-slate-900">Register</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Create your account</h1>
         <p className="mt-1 text-slate-600">
-          Create your account to book and host.
+          Takes about a minute. You can change your mind later.
         </p>
 
         <form
-          className="mt-6 space-y-4 rounded-2xl border border-border bg-white p-6"
+          className="mt-6 space-y-5 rounded-2xl border border-border bg-white p-6"
           onSubmit={form.handleSubmit(async (values) => {
             try {
               await register({
@@ -49,14 +86,57 @@ export default function RegisterPage() {
                 phone: values.phone || undefined,
                 password: values.password,
               });
-              await router.push('/auth/login');
+              // register() auto-logs in — route by intent unless ?next= is set
+              await router.push(destination());
             } catch (e: any) {
-              form.setError('root', {
-                message: e?.message ? String(e.message) : 'Registration failed',
-              });
+              form.setError('root', { message: friendlyRegisterError(e) });
             }
           })}
         >
+          {/* ── Intent picker ── */}
+          <div>
+            <label className="text-sm font-medium text-slate-700 mb-2 block">
+              I want to…
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setIntent('rent')}
+                className={`rounded-xl border-2 p-4 text-left transition ${
+                  intent === 'rent'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+                aria-pressed={intent === 'rent'}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <i className="fa-solid fa-bag-shopping text-primary" />
+                  <span className="font-semibold text-slate-900">Rent things</span>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Find a place, a car, a padel court, beach gear.
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIntent('host')}
+                className={`rounded-xl border-2 p-4 text-left transition ${
+                  intent === 'host'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+                aria-pressed={intent === 'host'}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <i className="fa-solid fa-house-chimney text-primary" />
+                  <span className="font-semibold text-slate-900">List my stuff</span>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Earn money renting out what you own.
+                </p>
+              </button>
+            </div>
+          </div>
           <div>
             <label className="text-sm font-medium text-slate-700">Name</label>
             <input
@@ -104,6 +184,9 @@ export default function RegisterPage() {
               className="mt-1 w-full rounded-lg border border-border px-3 py-2"
               {...form.register('password')}
             />
+            <p className="mt-1 text-xs text-slate-500">
+              At least 6 characters.
+            </p>
             {form.formState.errors.password ? (
               <p className="mt-1 text-sm text-red-600">
                 {form.formState.errors.password.message}
@@ -116,7 +199,11 @@ export default function RegisterPage() {
             disabled={form.formState.isSubmitting}
             className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {form.formState.isSubmitting ? 'Creating…' : 'Create account'}
+            {form.formState.isSubmitting
+              ? 'Creating account…'
+              : intent === 'host'
+                ? 'Create account and start hosting'
+                : 'Create account and start browsing'}
           </button>
 
           {form.formState.errors.root ? (
@@ -129,12 +216,17 @@ export default function RegisterPage() {
           <p className="text-center text-sm text-slate-600">
             Already have an account?{' '}
             <Link
-              href="/auth/login"
+              href={next === '/' ? '/auth/login' : `/auth/login?next=${encodeURIComponent(next)}`}
               className="font-semibold text-primary hover:text-primary-600"
             >
               Login
             </Link>
           </p>
+
+          <SocialAuthButtons
+            next={destination()}
+            disabled={form.formState.isSubmitting}
+          />
         </form>
       </div>
     </Layout>

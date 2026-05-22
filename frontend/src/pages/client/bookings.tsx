@@ -8,6 +8,7 @@ import { formatTnd } from '@/lib/utils/format';
 import { InlineError } from '@/components/ui/InlineError';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingCard } from '@/components/ui/LoadingCard';
+import { OpenDisputeModal } from '@/components/shared/OpenDisputeModal';
 
 type TabKey = 'current' | 'past' | 'cancelled';
 
@@ -17,6 +18,7 @@ export default function ClientBookingsPage() {
   const [tab, setTab] = useState<TabKey>('current');
   // Track which booking is being created to show a per-row spinner
   const [creatingFor, setCreatingFor] = useState<string | null>(null);
+  const [disputeFor, setDisputeFor] = useState<string | null>(null);
 
   const bookings = useMemo(
     () => ((query.data as any) ?? []) as any[],
@@ -272,6 +274,26 @@ export default function ClientBookingsPage() {
                         <button className="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-2.5 px-4 rounded-lg transition">
                           <i className="fa-solid fa-share-nodes" />
                         </button>
+                        {(b.status === 'paid' || b.status === 'completed') &&
+                        (b as any).disputeStatus !== 'OPEN' ? (
+                          <button
+                            type="button"
+                            onClick={() => setDisputeFor(b.id)}
+                            className="border border-rose-300 hover:bg-rose-50 text-rose-700 font-medium py-2.5 px-4 rounded-lg transition text-sm"
+                          >
+                            <i className="fa-solid fa-triangle-exclamation mr-1" />
+                            Report issue
+                          </button>
+                        ) : null}
+                        {(b as any).disputeStatus === 'OPEN' ? (
+                          <Link
+                            href={`/disputes`}
+                            className="border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-700 font-medium py-2.5 px-4 rounded-lg transition text-sm"
+                          >
+                            <i className="fa-solid fa-clock mr-1" />
+                            Dispute open
+                          </Link>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -281,6 +303,11 @@ export default function ClientBookingsPage() {
           )}
         </div>
       </main>
+      <OpenDisputeModal
+        bookingId={disputeFor ?? ''}
+        open={!!disputeFor}
+        onClose={() => setDisputeFor(null)}
+      />
     </ClientLayout>
   );
 }

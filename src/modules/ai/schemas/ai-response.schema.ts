@@ -16,15 +16,17 @@ export const FollowUpSchema = z.object({
 });
 
 export const SearchFiltersSchema = z.object({
-  q: z.string().optional(),
-  categorySlug: z.string().optional(),
-  minPrice: z.number().min(0).optional(),
-  maxPrice: z.number().min(0).optional(),
-  bookingType: z.enum(['DAILY', 'SLOT', 'ANY']).optional(),
-  availableFrom: z.string().optional(), // YYYY-MM-DD format
-  availableTo: z.string().optional(),
-  sortBy: z.enum(['distance', 'date', 'price_asc', 'price_desc']).optional(),
-  radiusKm: z.number().min(0).max(50).optional(),
+  q: z.string().nullable().optional(),
+  categorySlug: z.string().nullable().optional(),
+  city: z.string().nullable().optional(),
+  nearSea: z.boolean().nullable().optional(),
+  minPrice: z.number().nullable().optional(),
+  maxPrice: z.number().nullable().optional(),
+  bookingType: z.enum(['DAILY', 'SLOT', 'ANY']).nullable().optional(),
+  availableFrom: z.string().nullable().optional(),
+  availableTo: z.string().nullable().optional(),
+  sortBy: z.enum(['distance', 'date', 'price_asc', 'price_desc']).nullable().optional(),
+  radiusKm: z.number().min(0).max(200).nullable().optional(),
 });
 
 export const SearchChipSchema = z.object({
@@ -55,16 +57,36 @@ export type FollowUp = z.infer<typeof FollowUpSchema>;
 export type SearchFilters = z.infer<typeof SearchFiltersSchema>;
 export type SearchChip = z.infer<typeof SearchChipSchema>;
 
-export const PriceSuggestionResponseSchema = z.object({
-  recommended: z.number(),
-  rangeMin: z.number(),
-  rangeMax: z.number(),
-  confidence: z.enum(['high', 'medium', 'low']),
-  explanation: z.tuple([z.string(), z.string(), z.string()]),
+// ── Price Suggestion Response ──────────────────────────────────────────────────
+
+const PriceSuggestionResponseSchema = z.object({
+  recommended: z.number().positive(),
+  rangeMin:    z.number().positive(),
+  rangeMax:    z.number().positive(),
+  confidence:  z.enum(['high', 'medium', 'low']),
+  explanation: z.array(z.string()).min(1),
 });
 
-export function parsePriceSuggestionResponse(text: string) {
-  // Extract JSON from markdown code blocks if present
-  const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
-  return PriceSuggestionResponseSchema.parse(JSON.parse(jsonStr));
+export type PriceSuggestionResponse = z.infer<typeof PriceSuggestionResponseSchema>;
+
+/**
+ * Strip optional markdown code fences, parse JSON, and Zod-validate the
+ * Gemini price suggestion response. Returns null on any failure so the
+ * caller can fall back to the math pipeline.
+ */
+export function parsePriceSuggestionResponse(raw: string): PriceSuggestionResponse | null {
+  try {
+    // Strip ```json ... ``` or ``` ... ``` fences Gemini sometimes wraps around JSON
+    const cleaned = raw
+      .trim()
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```\s*$/, '');
+
+    const parsed = JSON.parse(cleaned);
+    const result = PriceSuggestionResponseSchema.safeParse(parsed);
+    if (!result.success) return null;
+    return result.data;
+  } catch {
+    return null;
+  }
 }

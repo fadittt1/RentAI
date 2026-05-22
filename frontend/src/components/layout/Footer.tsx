@@ -63,14 +63,14 @@ export function Footer() {
           </h4>
           <ul className="space-y-2 text-sm text-slate-300">
             <li>
-              <a className="hover:text-white" href="#">
+              <Link className="hover:text-white" href="/help">
                 {locale === 'ar' ? 'الشروط' : 'Terms'}
-              </a>
+              </Link>
             </li>
             <li>
-              <a className="hover:text-white" href="#">
+              <Link className="hover:text-white" href="/help">
                 {locale === 'ar' ? 'الخصوصية' : 'Privacy'}
-              </a>
+              </Link>
             </li>
           </ul>
         </div>

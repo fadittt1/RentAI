@@ -1,4 +1,9 @@
-import { Controller, Post, Get, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Body, Query, Param, Res, UseGuards, UseInterceptors, UploadedFiles } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { Throttle } from '@nestjs/throttler';
+import type { Response } from 'express';
+import { EmbeddingService } from './embedding.service';
 import {
   ApiTags,
   ApiOperation,
@@ -12,6 +17,8 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { ListingAssistantService } from './listing-assistant.service';
 import { AiSearchService } from './ai-search.service';
+import { PriceSuggestionService } from './price-suggestion.service';
+import { ImageClassifierService } from './image-classifier.service';
 import { PrismaService } from '../../database/prisma.service';
 import {
   GenerateListingDto,
@@ -19,6 +26,10 @@ import {
   GenerateTitleDto,
 } from './dto/listing-assistant.dto';
 import { AiSearchRequestDto } from './dto/ai-search.dto';
+import {
+  PriceSuggestionRequestDto,
+  PatchPriceSuggestionLogDto,
+} from './dto/price-suggestion.dto';
 
 @ApiTags('AI')
 @Controller('api/ai')
@@ -26,6 +37,9 @@ export class AiController {
   constructor(
     private listingAssistantService: ListingAssistantService,
     private aiSearchService: AiSearchService,
+    private priceSuggestionService: PriceSuggestionService,
+    private embeddingService: EmbeddingService,
+    private imageClassifierService: ImageClassifierService,
     private prisma: PrismaService,
   ) {}
 
@@ -277,8 +291,185 @@ export class AiController {
       },
     },
   })
+  @Throttle({ default: { limit: 40, ttl: 60_000 } }) // 40 req/min per IP — enough for normal use, blocks abuse
   async search(@Body() dto: AiSearchRequestDto) {
     return this.aiSearchService.search(dto);
+  }
+
+  @Post('search/stream')
+  @Public()
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Streaming AI search (NDJSON)',
+    description:
+      'Same request shape as POST /search but streams progress events as newline-delimited JSON. ' +
+      'The client receives an "understanding" event with parsed filters/chips as soon as the NLU completes (~1s), ' +
+      'then a final "result" event with full results (~500ms later). ' +
+      'This roughly halves the perceived latency: the user sees chips immediately while results load.',
+  })
+  async searchStream(@Body() dto: AiSearchRequestDto, @Res() res: Response) {
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering if reverse-proxied
+    res.flushHeaders?.();
+
+    const writeEvent = (event: { type: string; data: any }) => {
+      res.write(JSON.stringify(event) + '\n');
+      (res as any).flush?.();
+    };
+
+    try {
+      await this.aiSearchService.search(dto, writeEvent);
+    } catch (e: any) {
+      writeEvent({ type: 'error', data: { message: e?.message ?? 'Search failed' } });
+    } finally {
+      res.end();
+    }
+  }
+
+  @Get('search/recent')
+  @Public()
+  @ApiOperation({
+    summary: 'Recent unique search queries (for empty-state history list)',
+    description: 'Returns the last N successful queries deduplicated, newest first.',
+  })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+  async getRecentSearches(@Query('limit') limit?: string) {
+    const take = Math.min(parseInt(limit ?? '10', 10) || 10, 50);
+    // Pull more than `take` and dedup by lowercased query
+    const rows = await this.prisma.aiSearchLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: take * 4,
+      select: { query: true, createdAt: true, filters: true, mode: true, resultsCount: true },
+    });
+    const seen = new Set<string>();
+    const unique: Array<{
+      query: string;
+      createdAt: Date;
+      categorySlug?: string;
+      resultsCount: number;
+    }> = [];
+    for (const r of rows) {
+      const key = r.query.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const f = (r.filters ?? {}) as any;
+      unique.push({
+        query: r.query,
+        createdAt: r.createdAt,
+        categorySlug: f.categorySlug,
+        resultsCount: r.resultsCount,
+      });
+      if (unique.length >= take) break;
+    }
+    return unique;
+  }
+
+  @Delete('search/recent')
+  @Public()
+  @ApiOperation({
+    summary: 'Clear recent searches',
+    description: 'Deletes all AI search log entries. Use sparingly — affects everyone in this demo build.',
+  })
+  async clearRecentSearches() {
+    const r = await this.prisma.aiSearchLog.deleteMany({});
+    return { deleted: r.count };
+  }
+
+  @Post('search/suggestion-click')
+  @Public()
+  @ApiOperation({
+    summary: 'Track a click on a suggestion chip',
+    description: 'Logs which refinement suggestion the user clicked after a search. Used to learn which suggestions are actually useful.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['suggestion', 'originalQuery'],
+      properties: {
+        suggestion:    { type: 'string', example: 'Moins de 250 TND/jour' },
+        originalQuery: { type: 'string', example: 'villa kelibia' },
+        sessionId:     { type: 'string', nullable: true },
+      },
+    },
+  })
+  async trackSuggestionClick(@Body() body: { suggestion: string; originalQuery: string; sessionId?: string }) {
+    if (!body?.suggestion || !body?.originalQuery) {
+      return { ok: false, error: 'suggestion and originalQuery are required' };
+    }
+    await this.prisma.aiSearchLog.create({
+      data: {
+        query:         body.suggestion.slice(0, 200),
+        mode:          'SUGGESTION_CLICK',
+        followUpAsked: false,
+        filters: {
+          parentQuery: body.originalQuery.slice(0, 200),
+          sessionId:   body.sessionId ?? null,
+        } as any,
+        resultsCount: 0,
+      },
+    });
+    return { ok: true };
+  }
+
+  @Get('search/suggestion-stats')
+  @Public()
+  @ApiOperation({
+    summary: '[Dev/Admin] Top clicked suggestions',
+    description: 'Returns the most-clicked refinement suggestions, ranked. Useful for tuning which to surface first.',
+  })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+  async getSuggestionStats(@Query('limit') limit?: string) {
+    const take = Math.min(parseInt(limit ?? '10', 10) || 10, 50);
+    const rows = await this.prisma.aiSearchLog.findMany({
+      where: { mode: 'SUGGESTION_CLICK' },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+      select: { query: true },
+    });
+    const counts = new Map<string, number>();
+    for (const r of rows) counts.set(r.query, (counts.get(r.query) ?? 0) + 1);
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, take)
+      .map(([suggestion, clicks]) => ({ suggestion, clicks }));
+  }
+
+  @Get('search/embedding-stats')
+  @Public()
+  @ApiOperation({
+    summary: '[Dev/Admin] Semantic search index stats',
+    description: 'Returns the size, age, and availability of the in-memory listing embedding index.',
+  })
+  getEmbeddingStats() {
+    return this.embeddingService.getIndexStats();
+  }
+
+  @Post('search/embedding-rebuild')
+  @Public()
+  @ApiOperation({
+    summary: '[Dev/Admin] Force rebuild of the embedding index',
+    description: 'Re-embeds every active listing. Useful after a bulk seed or schema change.',
+  })
+  async rebuildEmbeddings() {
+    return this.embeddingService.rebuildIndex();
+  }
+
+  @Get('search/quick-starts')
+  @Public()
+  @ApiOperation({
+    summary: 'Example queries for the empty-state suggestion chips',
+    description: 'Hand-curated short prompts grouped by intent. The frontend renders these as clickable chips.',
+  })
+  getQuickStarts() {
+    return [
+      { icon: '🏠', label: 'Villa près de la mer à Kelibia', query: 'villa près de la mer à kelibia ce weekend' },
+      { icon: '🚗', label: 'Voiture pour le week-end',       query: 'voiture pour ce weekend' },
+      { icon: '🏖️', label: 'Kayak ou paddle à Nabeul',        query: 'kayak à nabeul demain' },
+      { icon: '⚽', label: 'Terrain de foot à Tunis',         query: 'terrain de foot à tunis ce soir' },
+      { icon: '🎾', label: 'Padel pas cher',                  query: 'padel pas cher ce weekend' },
+      { icon: '🏡', label: 'Maison avec piscine, max 500',    query: 'maison avec piscine moins de 500 tnd' },
+    ];
   }
 
   @Get('admin/search-logs')
@@ -368,5 +559,67 @@ export class AiController {
       dto.location,
     );
     return { titles };
+  }
+
+  @Post('price-suggestion')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'AI price suggestion for a listing (stays / accommodation only in MVP)' })
+  @ApiResponse({ status: 201, description: 'Price suggestion generated' })
+  async priceSuggestion(@Body() dto: PriceSuggestionRequestDto) {
+    return this.priceSuggestionService.suggest(dto);
+  }
+
+  @Patch('price-suggestion/log/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Link a published listing to its price suggestion log' })
+  @ApiResponse({ status: 200, description: 'Log updated' })
+  async patchPriceSuggestionLog(
+    @Param('id') id: string,
+    @Body() dto: PatchPriceSuggestionLogDto,
+  ) {
+    return this.priceSuggestionService.patchLog(id, dto.listingId, dto.finalPrice, dto.suggestedPrice);
+  }
+
+  // ─── Image category classifier ────────────────────────────────────────────
+  // Called client-side right after the host selects photos, before form submit.
+  // Returns the AI's category guess so the form can pre-fill the category field.
+
+  @Post('classify-images')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @UseInterceptors(
+    FilesInterceptor('images', 5, {
+      storage: memoryStorage(), // keep buffers in RAM — no disk write for this transient call
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        if (/^image\/(jpeg|jpg|png)$/.test(file.mimetype)) cb(null, true);
+        else cb(new Error('Only JPEG/PNG images are accepted') as any, false);
+      },
+    }),
+  )
+  @ApiOperation({
+    summary: 'Classify listing category from uploaded photos',
+    description:
+      'Accepts 1–5 images (multipart/form-data, field name "images") and returns the AI-detected category. ' +
+      'Call this right after the host selects images so the category field can be pre-filled. ' +
+      'confidence=0 means vision is unavailable — the frontend should not pre-fill in that case.',
+  })
+  @ApiResponse({
+    status: 201,
+    schema: {
+      type: 'object',
+      properties: {
+        categorySlug: { type: 'string', enum: ['stays', 'mobility', 'sports-facilities', 'beach-gear'] },
+        label:        { type: 'string', example: 'Séjour / Villa' },
+        icon:         { type: 'string', example: 'fa-house' },
+        confidence:   { type: 'number', example: 0.94 },
+        source:       { type: 'string', enum: ['vision', 'fallback'] },
+      },
+    },
+  })
+  async classifyImages(@UploadedFiles() files: Express.Multer.File[]) {
+    return this.imageClassifierService.classify(files ?? []);
   }
 }

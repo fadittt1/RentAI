@@ -225,7 +225,7 @@ export default function DemoAiSearchPage() {
                 lat: selectedLocation.lat,
                 lng: selectedLocation.lng,
                 radiusKm: safeRadius,
-                followUpUsed: opts?.isFollowUp ?? false,
+                followUpUsed: opts?.isFollowUp ? 1 : 0,
                 ...(opts?.answer ? { followUpAnswer: opts.answer } : {}),
             });
 

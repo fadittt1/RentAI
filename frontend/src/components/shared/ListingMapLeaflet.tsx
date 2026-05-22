@@ -1,4 +1,5 @@
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { useEffect } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvent } from 'react-leaflet';
 import L from 'leaflet';
 import { formatTnd } from '@/lib/utils/format';
 
@@ -16,16 +17,53 @@ export interface ListingMapProps {
   center: [number, number];
   zoom?: number;
   height?: string;
+  userLocation?: [number, number];
+  radiusKm?: number;
+  /** Fires with the map's new center after the user pans/zooms. */
+  onMoveEnd?: (center: [number, number], zoom: number) => void;
 }
 
 function makePriceIcon(price: number) {
   return L.divIcon({
     className: '',
     html: `<span style="display:inline-block;background:#3b82f6;color:#fff;padding:3px 10px;border-radius:9999px;font-size:12px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.3);white-space:nowrap;cursor:pointer">${formatTnd(price)}</span>`,
-    iconSize: [60, 24],
-    iconAnchor: [30, 12],
-    popupAnchor: [0, -14],
+    iconAnchor: [0, 12],
+    popupAnchor: [40, -14],
   });
+}
+
+const YOU_ARE_HERE_ICON = L.divIcon({
+  className: '',
+  html: `
+    <div style="position:relative;width:22px;height:22px">
+      <div style="position:absolute;inset:0;background:rgba(59,130,246,0.25);border-radius:50%;animation:pulse-ring 1.8s ease-out infinite"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:14px;height:14px;background:#3b82f6;border:3px solid #fff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.35)"></div>
+    </div>
+    <style>
+      @keyframes pulse-ring{0%{transform:scale(1);opacity:.8}100%{transform:scale(2.8);opacity:0}}
+    </style>
+  `,
+  iconSize: [22, 22],
+  iconAnchor: [11, 11],
+  popupAnchor: [0, -14],
+});
+
+function MapFlyTo({ center }: { center: [number, number] }) {
+  const map = useMap();
+  useEffect(() => {
+    map.flyTo(center, map.getZoom(), { animate: true, duration: 1.2 });
+  // only re-fly when the coords actually change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [center[0], center[1]]);
+  return null;
+}
+
+function MoveListener({ onMoveEnd }: { onMoveEnd: (c: [number, number], z: number) => void }) {
+  useMapEvent('moveend', (e) => {
+    const c = e.target.getCenter();
+    onMoveEnd([c.lat, c.lng], e.target.getZoom());
+  });
+  return null;
 }
 
 export default function ListingMapLeaflet({
@@ -33,12 +71,17 @@ export default function ListingMapLeaflet({
   center,
   zoom = 12,
   height = '400px',
+  userLocation,
+  radiusKm,
+  onMoveEnd,
 }: ListingMapProps) {
   const valid = listings.filter(
     (l) =>
       Array.isArray(l.location?.coordinates) &&
       l.location!.coordinates.length === 2,
   );
+
+  const flyTarget = userLocation ?? center;
 
   return (
     <MapContainer
@@ -51,6 +94,38 @@ export default function ListingMapLeaflet({
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
+
+      {/* Fly to user location once it resolves */}
+      <MapFlyTo center={flyTarget} />
+
+      {/* Pan/zoom listener for "Search this area" */}
+      {onMoveEnd && <MoveListener onMoveEnd={onMoveEnd} />}
+
+      {/* Radius circle */}
+      {userLocation && radiusKm && (
+        <Circle
+          center={userLocation}
+          radius={radiusKm * 1000}
+          pathOptions={{
+            color: '#3b82f6',
+            fillColor: '#3b82f6',
+            fillOpacity: 0.06,
+            weight: 2,
+            dashArray: '10 6',
+          }}
+        />
+      )}
+
+      {/* "You are here" dot */}
+      {userLocation && (
+        <Marker position={userLocation} icon={YOU_ARE_HERE_ICON} zIndexOffset={1000}>
+          <Popup>
+            <p style={{ fontWeight: 700, fontSize: 13, margin: 0 }}>You are here</p>
+          </Popup>
+        </Marker>
+      )}
+
+      {/* Listing price markers */}
       {valid.map((l) => {
         const [lng, lat] = l.location!.coordinates;
         return (

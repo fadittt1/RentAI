@@ -16,17 +16,43 @@ import {
   ApiResponse,
 } from '@nestjs/swagger';
 import { BookingsService } from './bookings.service';
+import { BookingReminderService } from './booking-reminder.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { PayBookingDto } from './dto/pay-booking.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { HostGuard } from '../../common/guards/host.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 @ApiTags('bookings')
 @ApiBearerAuth()
 @Controller('api/bookings')
 @UseGuards(JwtAuthGuard)
 export class BookingsController {
-  constructor(private readonly bookingsService: BookingsService) { }
+  constructor(
+    private readonly bookingsService: BookingsService,
+    private readonly bookingReminderService: BookingReminderService,
+  ) { }
+
+  /**
+   * Cron-triggered reminder pass for abandoned bookings. Admin-only because
+   * triggering it costs Twilio + Resend credits — protect it from random hits.
+   * Configure a scheduled job (Railway / Render / Windows Task Scheduler) to
+   * POST here every 30–60 minutes.
+   */
+  @Post('process-pending-reminders')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Send WhatsApp + email reminders for unpaid pending bookings (admin/cron)',
+    description:
+      'Sends a first reminder after 4h pending, a final reminder after 24h, ' +
+      'and auto-cancels bookings still unpaid after 48h. Idempotent — safe to ' +
+      'run hourly without double-sending.',
+  })
+  processPendingReminders() {
+    return this.bookingReminderService.processPending();
+  }
 
   @Post()
   @Throttle({ default: { limit: 10, ttl: 60000 } }) // 10 requests per minute

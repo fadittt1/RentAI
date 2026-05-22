@@ -7,6 +7,8 @@ import { useChatSocket } from '@/lib/chat/useChatSocket';
 import { markRead } from '@/lib/api/chat';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import type { Message } from '@/lib/api/chat';
+import { API_URL } from '@/lib/api/env';
+import { detectContact } from '@/lib/anti-leak/detectContact';
 
 // ─── helpers ────────────────────────────────────────────────────────
 function formatTime(iso: string) {
@@ -366,7 +368,7 @@ export default function ChatThreadPage() {
                               {card.listingImage ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
-                                  src={card.listingImage.startsWith('http') || card.listingImage.startsWith('/') ? card.listingImage : `http://localhost:3001${card.listingImage}`}
+                                  src={card.listingImage.startsWith('http') || card.listingImage.startsWith('/') ? card.listingImage : `${API_URL}${card.listingImage}`}
                                   alt={card.listingTitle}
                                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                   onError={(e) => { e.currentTarget.style.display = 'none'; }}
@@ -479,6 +481,25 @@ export default function ChatThreadPage() {
           background: '#fff', borderTop: '1px solid #e2e8f0',
           padding: '12px 16px',
         }}>
+          {detectContact(input).detected ? (
+            <div
+              style={{
+                maxWidth: 800,
+                margin: '0 auto 8px',
+                background: '#fffbeb',
+                border: '1px solid #fde68a',
+                color: '#92400e',
+                borderRadius: 12,
+                padding: '8px 12px',
+                fontSize: 12,
+                lineHeight: 1.4,
+              }}
+            >
+              <strong>Heads up:</strong> we hide phone numbers, emails, and
+              social handles in messages. Bookings paid outside the platform
+              aren't protected — pay through RentEverything to be covered.
+            </div>
+          ) : null}
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', maxWidth: 800, margin: '0 auto' }}>
             <textarea
               ref={inputRef}

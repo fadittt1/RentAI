@@ -44,7 +44,7 @@ export function AdminLayout({
                   <i className="fa-solid fa-circle-nodes text-white text-lg" />
                 </div>
                 <span className="text-xl font-bold text-gray-900">
-                  RentLocal
+                  RentEverything
                 </span>
               </div>
             </div>
@@ -173,17 +173,11 @@ export function AdminLayout({
           className="bg-gradient-to-br from-blue-50 to-white py-8"
         >
           <div className="max-w-7xl mx-auto px-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                  {title}
-                </h1>
-                <p className="text-gray-600">{subtitle}</p>
-              </div>
-              <button className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-medium shadow-md transition flex items-center">
-                <i className="fa-solid fa-shield-halved mr-2" />
-                Admin actions
-              </button>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                {title}
+              </h1>
+              <p className="text-gray-600">{subtitle}</p>
             </div>
           </div>
         </section>
@@ -191,130 +185,10 @@ export function AdminLayout({
 
       {children}
 
-      <footer id="footer" className="bg-gray-900 text-white py-12 mt-12">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="grid grid-cols-4 gap-8 mb-8">
-            <div>
-              <h4 className="font-semibold mb-4">About</h4>
-              <ul className="space-y-2 text-sm text-gray-400">
-                <li>
-                  <a href="#" className="hover:text-white">
-                    How it works
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    About us
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Careers
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Press
-                  </a>
-                </li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="font-semibold mb-4">Support</h4>
-              <ul className="space-y-2 text-sm text-gray-400">
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Help Center
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Safety
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Trust & Safety
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Contact us
-                  </a>
-                </li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="font-semibold mb-4">Hosting</h4>
-              <ul className="space-y-2 text-sm text-gray-400">
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Become a host
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Host resources
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Community forum
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Responsible hosting
-                  </a>
-                </li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="font-semibold mb-4">Legal</h4>
-              <ul className="space-y-2 text-sm text-gray-400">
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Terms of Service
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Privacy Policy
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Cookie Policy
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="hover:text-white">
-                    Sitemap
-                  </a>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="border-t border-gray-800 pt-8 flex items-center justify-between">
-            <p className="text-sm text-gray-400">
-              © 2024 RentLocal. All rights reserved.
-            </p>
-            <div className="flex items-center space-x-4">
-              <a href="#" className="text-gray-400 hover:text-white">
-                <i className="fa-brands fa-facebook text-xl" />
-              </a>
-              <a href="#" className="text-gray-400 hover:text-white">
-                <i className="fa-brands fa-instagram text-xl" />
-              </a>
-              <a href="#" className="text-gray-400 hover:text-white">
-                <i className="fa-brands fa-twitter text-xl" />
-              </a>
-            </div>
-          </div>
+      <footer className="border-t border-gray-200 bg-white py-6 mt-12">
+        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between text-sm text-gray-500">
+          <span>RentEverything · Admin · © {new Date().getFullYear()}</span>
+          <span>v1</span>
         </div>
       </footer>
     </div>

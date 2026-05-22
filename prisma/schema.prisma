@@ -18,7 +18,9 @@ model User {
   name            String    @db.VarChar(255)
   email           String?   @unique @db.VarChar(255)
   phone           String?   @unique @db.VarChar(20)
-  passwordHash    String    @map("password_hash") @db.VarChar(255)
+  // Nullable because OAuth-only users (Google etc.) never set a local password
+  passwordHash    String?   @map("password_hash") @db.VarChar(255)
+  googleId        String?   @unique @map("google_id") @db.VarChar(255)
   avatarUrl       String?   @db.VarChar(500)
   roles           String[]  @default(["user"])
   isHost          Boolean   @default(false)
@@ -31,6 +33,32 @@ model User {
   suspendedAt     DateTime? @map("suspended_at")
   trustReviewedAt DateTime? @map("trust_reviewed_at")
   manualTrustTier String?   @map("manual_trust_tier") @db.VarChar(50)
+  homeLat         Float?    @map("home_lat")
+  homeLng         Float?    @map("home_lng")
+  homeCityName    String?   @map("home_city_name") @db.VarChar(255)
+
+  // Quality score (0..100). Recomputed by QualityScoreService on relevant
+  // events (new booking accepted, review created) and nightly by cron.
+  // Higher score = better search ranking + visible "Top host" badge.
+  qualityScore    Int       @default(0) @map("quality_score")
+  qualityUpdatedAt DateTime? @map("quality_updated_at")
+
+  // Renter trust score (0..100). Mirrors qualityScore but with renter-side
+  // signals: completed bookings, host reviews of this renter, late-cancel
+  // history, disputes opened by hosts, KYC, account age. High scorers get
+  // a "Trusted renter" badge that hosts see when accepting requests, plus
+  // future-instant-book eligibility.
+  renterTrustScore   Int       @default(0) @map("renter_trust_score")
+  renterTrustUpdatedAt DateTime? @map("renter_trust_updated_at")
+
+  // Host KYC: uploaded ID document URL + admin review state. Renter-facing
+  // UIs check `idVerifiedAt IS NOT NULL` to show the "Verified host" badge.
+  idDocumentUrl   String?   @map("id_document_url") @db.VarChar(500)
+  idSubmittedAt   DateTime? @map("id_submitted_at")
+  idVerifiedAt    DateTime? @map("id_verified_at")
+  idVerifiedBy    String?   @map("id_verified_by")
+  idRejectedAt    DateTime? @map("id_rejected_at")
+  idRejectionReason String? @map("id_rejection_reason") @db.VarChar(500)
 
   // Relations
   listings               Listing[]
@@ -52,10 +80,117 @@ model User {
   payoutsAsHost              Payout[]                    @relation("HostPayouts")
   categoryRequests           CategoryRequest[]           @relation("RequesterCategoryRequests")
   wallet                     Wallet?
+  verificationCodes          VerificationCode[]          @relation("UserVerificationCodes")
+  passwordResetTokens        PasswordResetToken[]        @relation("UserPasswordResetTokens")
+  refreshTokens              RefreshToken[]              @relation("UserRefreshTokens")
+  wishlistItems              WishlistItem[]              @relation("UserWishlist")
+  disputesOpened             Dispute[]                   @relation("DisputeOpener")
+  disputeMessages            DisputeMessage[]            @relation("DisputeMessageAuthor")
+  notifications              Notification[]              @relation("UserNotifications")
 
   @@index([email])
   @@index([phone])
   @@map("users")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(255)
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  ipAddress  String?   @map("ip_address") @db.VarChar(64)
+  userAgent  String?   @map("user_agent") @db.VarChar(255)
+
+  user User @relation("UserRefreshTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ===========================
+// WhatsApp Concierge
+// ===========================
+// A lightweight per-phone-number conversation log used by the WhatsApp bot.
+// Stores the last search context so a follow-up like "the second one" can be
+// resolved against the previous reply. Tied to a User only when we can match
+// the phone number — otherwise the conversation is anonymous.
+model WishlistItem {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  listingId String   @map("listing_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation("UserWishlist", fields: [userId], references: [id], onDelete: Cascade)
+  listing Listing @relation("ListingWishlist", fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, listingId])
+  @@index([userId])
+  @@index([listingId])
+  @@map("wishlist_items")
+}
+
+model WhatsappConversation {
+  id              String   @id @default(uuid())
+  phoneNumber     String   @unique @map("phone_number") @db.VarChar(32)
+  userId          String?  @map("user_id")
+  lastQuery       String?  @map("last_query") @db.Text
+  lastResultIds   String[] @map("last_result_ids")
+  lastFilters     Json?    @map("last_filters") @db.JsonB
+  lastMessageAt   DateTime @default(now()) @map("last_message_at")
+  messageCount    Int      @default(0) @map("message_count")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([lastMessageAt])
+  @@map("whatsapp_conversations")
+}
+
+// ===========================
+// In-app notifications
+// ===========================
+// One row per actionable in-app event for a user. The bell icon shows the
+// unread count; clicking an entry opens the linked URL. We deliberately keep
+// the column shape small — heavy data lives in `payload` JSON for evolution
+// without schema migrations.
+//
+// `kind` is a short opaque string ("BOOKING_REQUESTED", "DISPUTE_RESOLVED",
+// etc.) — the frontend uses it to pick an icon + colour. Keep new kinds
+// stable; client may not know about brand-new ones until you ship a UI.
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  kind      String    @db.VarChar(64)
+  title     String    @db.VarChar(255)
+  body      String?   @db.Text
+  link      String?   @db.VarChar(500)
+  payload   Json?     @db.JsonB
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+model PasswordResetToken {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(255)
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  ipAddress  String?   @map("ip_address") @db.VarChar(64)
+
+  user User @relation("UserPasswordResetTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 // ===========================
@@ -114,6 +249,12 @@ enum BookingType {
   SLOT
 }
 
+enum CancellationPolicy {
+  FLEXIBLE
+  MODERATE
+  STRICT
+}
+
 enum ListingStatus {
   DRAFT
   PENDING_REVIEW
@@ -136,21 +277,39 @@ model Listing {
   isActive     Boolean                              @default(true)
   status       ListingStatus                        @default(PENDING_REVIEW)
   bookingType  BookingType                          @default(DAILY)
-  nearBeach      Boolean?                           @map("near_beach")
-  propertyType   String?                            @map("property_type") @db.VarChar(50)
-  guestsCapacity Int?                               @map("guests_capacity")
-  bedrooms       Int?                               @map("bedrooms")
-  deletedAt    DateTime?
-  createdAt    DateTime                             @default(now())
-  updatedAt    DateTime                             @updatedAt
+  nearBeach       Boolean?                          @map("near_beach")
+  propertyType    String?                           @map("property_type") @db.VarChar(50)
+  guestsCapacity  Int?                              @map("guests_capacity")
+  bedrooms        Int?                              @map("bedrooms")
+  ratingAvg       Float                             @default(0) @map("rating_avg")
+  bookingCount30d Int                               @default(0) @map("booking_count_30d")
+  qualityScore    Int                               @default(0) @map("quality_score")
+  qualityUpdatedAt DateTime?                        @map("quality_updated_at")
+  // Host-chosen refund rules for this listing. Surfaced on the detail page
+  // and used by CancellationPolicyService to compute refund amounts.
+  cancellationPolicy CancellationPolicy             @default(MODERATE) @map("cancellation_policy")
+
+  // Smart Pricing: when true, DynamicPricingService nudges pricePerDay daily
+  // within ±30% of basePricePerDay based on demand signals. basePricePerDay
+  // snapshots the host's original price so we can always recover and explain
+  // "where the price came from".
+  dynamicPricing   Boolean   @default(false) @map("dynamic_pricing")
+  basePricePerDay  Decimal?  @map("base_price_per_day") @db.Decimal(10, 2)
+  dynamicPricingAt DateTime? @map("dynamic_pricing_at")
+
+  deletedAt     DateTime?
+  createdAt     DateTime                            @default(now())
+  updatedAt     DateTime                            @updatedAt
 
   // Relations
-  host              User               @relation(fields: [hostId], references: [id])
-  category          Category           @relation(fields: [categoryId], references: [id])
+  host              User                 @relation(fields: [hostId], references: [id])
+  category          Category             @relation(fields: [categoryId], references: [id])
   bookings          Booking[]
   reviews           Review[]
   conversations     Conversation[]
   slotConfiguration SlotConfiguration?
+  wishlistedBy      WishlistItem[]       @relation("ListingWishlist")
+  priceAdjustments  PriceAdjustmentLog[]
 
   @@index([pricePerDay])
   @@index([categoryId])
@@ -176,6 +335,28 @@ enum DisputeStatus {
   NONE
   OPEN
   RESOLVED
+}
+
+enum DisputeReason {
+  NOT_AS_DESCRIBED   // Item didn't match the listing
+  DAMAGED            // Renter found it damaged on arrival, or host claims damage on return
+  NO_SHOW            // Other party didn't show up
+  CANCELLED_LATE     // Cancelled too close to start
+  PAYMENT_ISSUE      // Money/refund issue
+  OTHER
+}
+
+enum DisputeResolution {
+  PENDING                // not yet resolved
+  REFUND_FULL            // renter gets 100% back
+  REFUND_PARTIAL         // renter gets the recorded amount back
+  FAVOR_HOST             // host keeps everything
+  DISMISSED              // not actionable / out of policy
+}
+
+enum DisputeOpenedBy {
+  RENTER
+  HOST
 }
 
 model Booking {
@@ -207,14 +388,21 @@ model Booking {
   // Dispute
   disputeStatus DisputeStatus @default(NONE)
 
+  // Abandoned-booking nudges. We send one reminder after 4h pending, then a
+  // "last chance" after 24h. These columns track delivery so the cron never
+  // double-sends; null = not yet sent.
+  pendingReminderSentAt      DateTime? @map("pending_reminder_sent_at")
+  pendingFinalReminderSentAt DateTime? @map("pending_final_reminder_sent_at")
+
   // Relations
   listing       Listing        @relation(fields: [listingId], references: [id])
   renter        User           @relation("RenterBookings", fields: [renterId], references: [id])
   host          User           @relation("HostBookings", fields: [hostId], references: [id])
-  review        Review?
+  reviews       Review[]
   paymentIntent PaymentIntent?
   ledgerEntries LedgerEntry[]
   Conversation  Conversation[]
+  disputes      Dispute[]
 
   @@index([startDate, endDate])
   @@index([status])
@@ -223,17 +411,82 @@ model Booking {
 }
 
 // ===========================
+// Dispute model
+// ===========================
+// A formal complaint about a paid/completed booking. Opening a dispute
+// flips Booking.disputeStatus → OPEN, which makes the booking ineligible
+// for host payout until an admin resolves it. Each dispute has a timeline
+// of DisputeMessage rows so renter, host, and admin can communicate
+// without leaving the platform.
+model Dispute {
+  id          String            @id @default(uuid())
+  bookingId   String            @map("booking_id")
+  openedById  String            @map("opened_by_id")
+  openedBy    DisputeOpenedBy   @map("opened_by_role")
+  reason      DisputeReason
+  description String            @db.Text
+  status      DisputeStatus     @default(OPEN)
+  resolution  DisputeResolution @default(PENDING)
+  // Refund amount the admin decided on (only meaningful when resolution
+  // is REFUND_PARTIAL or REFUND_FULL). Always in the booking's currency.
+  refundAmount Decimal?         @map("refund_amount") @db.Decimal(10, 2)
+  resolvedById String?          @map("resolved_by_id")
+  resolvedAt   DateTime?        @map("resolved_at")
+  resolverNotes String?         @map("resolver_notes") @db.Text
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  booking  Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  opener   User             @relation("DisputeOpener", fields: [openedById], references: [id])
+  messages DisputeMessage[]
+
+  @@index([bookingId])
+  @@index([status])
+  @@index([openedById])
+  @@map("disputes")
+}
+
+model DisputeMessage {
+  id          String   @id @default(uuid())
+  disputeId   String   @map("dispute_id")
+  authorId    String   @map("author_id")
+  // True when the author is an admin acting on the case (vs a participant).
+  isAdmin     Boolean  @default(false) @map("is_admin")
+  body        String   @db.Text
+  // Image evidence (Cloudinary URLs in prod, /uploads/... in dev). Empty
+  // for plain-text messages.
+  attachments String[] @default([])
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  dispute Dispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  author  User    @relation("DisputeMessageAuthor", fields: [authorId], references: [id])
+
+  @@index([disputeId])
+  @@map("dispute_messages")
+}
+
+// ===========================
 // Review Model
 // ===========================
+// Two-sided: each booking gets up to two reviews — one from renter→host
+// (with the listing) and one from host→renter. authorRole tells which is which
+// so the UI can render differently and the host-of-renter rating doesn't
+// surface on a listing page.
+enum ReviewAuthorRole {
+  RENTER
+  HOST
+}
+
 model Review {
-  id           String   @id @default(uuid())
-  bookingId    String   @unique
+  id           String           @id @default(uuid())
+  bookingId    String
   authorId     String
+  authorRole   ReviewAuthorRole @default(RENTER) @map("author_role")
   targetUserId String
   listingId    String
   rating       Int
-  comment      String?  @db.Text
-  createdAt    DateTime @default(now())
+  comment      String?          @db.Text
+  createdAt    DateTime         @default(now())
 
   // Relations
   booking    Booking @relation(fields: [bookingId], references: [id])
@@ -241,7 +494,9 @@ model Review {
   targetUser User    @relation("ReviewTarget", fields: [targetUserId], references: [id])
   listing    Listing @relation(fields: [listingId], references: [id])
 
+  @@unique([bookingId, authorRole])
   @@index([targetUserId])
+  @@index([listingId])
   @@map("reviews")
 }
 
@@ -275,16 +530,23 @@ enum PaymentIntentStatus {
 }
 
 model PaymentIntent {
-  id        String              @id @default(uuid())
-  bookingId String              @unique
-  renterId  String
-  hostId    String
-  amount    Decimal             @db.Decimal(10, 2)
-  currency  String              @default("TND") @db.VarChar(3)
-  status    PaymentIntentStatus @default(created)
-  metadata  Json?               @db.JsonB
-  createdAt DateTime            @default(now())
-  updatedAt DateTime            @updatedAt
+  id          String              @id @default(uuid())
+  bookingId   String              @unique
+  renterId    String
+  hostId      String
+  amount      Decimal             @db.Decimal(10, 2)
+  currency    String              @default("TND") @db.VarChar(3)
+  status      PaymentIntentStatus @default(created)
+  metadata    Json?               @db.JsonB
+  // Real-money provider integration. `provider` is null for simulated payments,
+  // 'flouci' / 'konnect' / 'd17' for real ones. `providerRef` is the external
+  // payment id we get back from the gateway; we use it to verify callbacks.
+  provider    String?             @db.VarChar(32)
+  providerRef String?             @map("provider_ref") @db.VarChar(128)
+  redirectUrl String?             @map("redirect_url") @db.VarChar(500)
+  paidAt      DateTime?           @map("paid_at")
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
   // Relations
   booking       Booking       @relation(fields: [bookingId], references: [id])
@@ -295,6 +557,7 @@ model PaymentIntent {
   @@index([bookingId])
   @@index([status])
   @@index([renterId])
+  @@index([providerRef])
   @@map("payment_intents")
 }
 
@@ -337,7 +600,7 @@ model Message {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Content
+  // Content (already masked at write time if anti-leak fired)
   content String @db.Text
 
   // Sender
@@ -351,9 +614,16 @@ model Message {
   // Read status
   readAt DateTime?
 
+  // Anti-leak: true when the original message had a phone/email/social handle
+  // that we masked before persisting. `contactLeakKinds` lists what we matched
+  // (e.g. ["phone","social"]) — useful for spotting repeat offenders.
+  contactLeak      Boolean  @default(false) @map("contact_leak")
+  contactLeakKinds String[] @default([]) @map("contact_leak_kinds")
+
   @@index([conversationId])
   @@index([senderId])
   @@index([createdAt])
+  @@index([contactLeak])
   @@map("messages")
 }
 
@@ -401,6 +671,69 @@ model AiSearchLog {
 
   @@index([createdAt])
   @@map("ai_search_logs")
+}
+
+// ===========================
+// AI Price Suggestion Log
+// ===========================
+model PriceSuggestionLog {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  city            String  @db.VarChar(255)
+  categorySlug    String  @map("category_slug") @db.VarChar(100)
+  unit            String  @db.VarChar(50)
+  season          String? @db.VarChar(50)
+  propertyType    String? @map("property_type") @db.VarChar(50)
+  distanceToSeaKm Float?  @map("distance_to_sea_km")
+  capacity        Int?
+  lat             Float?
+  lng             Float?
+
+  suggestedPrice Decimal @map("suggested_price") @db.Decimal(10, 2)
+  rangeMin       Decimal @map("range_min") @db.Decimal(10, 2)
+  rangeMax       Decimal @map("range_max") @db.Decimal(10, 2)
+  confidence     String  @db.VarChar(10)
+  compsCity      Int     @map("comps_city")
+  compsNational  Int     @map("comps_national")
+  wCity          Float   @map("w_city")
+  wNational      Float   @map("w_national")
+
+  inputJson   Json  @map("input_json") @db.JsonB
+  outputJson  Json  @map("output_json") @db.JsonB
+  adjustments Json? @db.JsonB
+  explanation Json  @db.JsonB
+
+  listingId  String?  @map("listing_id")
+  finalPrice Decimal? @map("final_price") @db.Decimal(10, 2)
+  overridden Boolean?
+
+  @@index([createdAt])
+  @@index([city, categorySlug], map: "ai_price_suggestion_logs_city_category_slug_idx")
+  @@index([listingId], map: "ai_price_suggestion_logs_listing_id_idx")
+  @@map("ai_price_suggestion_logs")
+}
+
+// ===========================
+// Dynamic pricing audit log
+// ===========================
+// One row per Smart-Pricing adjustment. Surfaced to hosts ("here's why your
+// price moved") and used by the founder dashboard to track lift.
+model PriceAdjustmentLog {
+  id            String   @id @default(uuid())
+  listingId     String   @map("listing_id")
+  oldPrice      Decimal  @map("old_price") @db.Decimal(10, 2)
+  newPrice      Decimal  @map("new_price") @db.Decimal(10, 2)
+  basePrice     Decimal  @map("base_price") @db.Decimal(10, 2)
+  multiplier    Decimal  @db.Decimal(5, 4)
+  factors       Json     @db.JsonB
+  reason        String   @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId, createdAt])
+  @@map("price_adjustment_logs")
 }
 
 // ===========================
@@ -617,6 +950,29 @@ model Wallet {
   transactions WalletTransaction[]
 
   @@map("wallets")
+}
+
+enum VerificationChannel {
+  EMAIL
+  PHONE
+}
+
+model VerificationCode {
+  id          String              @id @default(uuid())
+  userId      String              @map("user_id")
+  channel     VerificationChannel
+  destination String              @db.VarChar(255)
+  codeHash    String              @map("code_hash") @db.VarChar(255)
+  expiresAt   DateTime            @map("expires_at")
+  consumedAt  DateTime?           @map("consumed_at")
+  attempts    Int                 @default(0)
+  createdAt   DateTime            @default(now()) @map("created_at")
+
+  user User @relation("UserVerificationCodes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, channel])
+  @@index([expiresAt])
+  @@map("verification_codes")
 }
 
 model WalletTransaction {

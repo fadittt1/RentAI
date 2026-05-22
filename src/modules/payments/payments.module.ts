@@ -5,11 +5,20 @@ import { PaymentsController } from './payments.controller';
 import { BookingsModule } from '../bookings/bookings.module';
 import { CancellationPolicyService } from '../../common/policies/cancellation-policy.service';
 import { LedgerModule } from '../ledger/ledger.module';
+import { FlouciProvider } from './providers/flouci.provider';
+import { D17Provider } from './providers/d17.provider';
+import { PaymentProviderRegistry } from './providers/payment-provider.registry';
 
 @Module({
   imports: [forwardRef(() => BookingsModule), LedgerModule, ConfigModule],
   controllers: [PaymentsController],
-  providers: [PaymentsService, CancellationPolicyService],
+  providers: [
+    PaymentsService,
+    CancellationPolicyService,
+    FlouciProvider,
+    D17Provider,
+    PaymentProviderRegistry,
+  ],
   exports: [PaymentsService],
 })
 export class PaymentsModule {}

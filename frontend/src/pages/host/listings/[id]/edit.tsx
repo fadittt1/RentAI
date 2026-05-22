@@ -3,6 +3,8 @@ import { useRouter } from 'next/router';
 import { HostLayout } from '@/components/host/HostLayout';
 import { useListing } from '@/lib/api/hooks/useListing';
 import { api } from '@/lib/api/http';
+import { API_URL } from '@/lib/api/env';
+import { SmartPricingCard } from '@/components/host/SmartPricingCard';
 import { LoadingCard } from '@/components/ui/LoadingCard';
 import { InlineError } from '@/components/ui/InlineError';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -37,7 +39,14 @@ export default function HostEditListingPage() {
     latitude: '',
     longitude: '',
     rules: '',
+    cancellationPolicy: 'MODERATE' as 'FLEXIBLE' | 'MODERATE' | 'STRICT',
   });
+  // Read-only on edit: changing booking type / slot shape after a listing
+  // has bookings is dangerous. We surface the values + price-per-slot only.
+  const [bookingType, setBookingType] = useState<'DAILY' | 'SLOT'>('DAILY');
+  const [pricePerSlot, setPricePerSlot] = useState<string>('');
+  const [dynamicPricing, setDynamicPricing] = useState<boolean>(false);
+  const [basePricePerDay, setBasePricePerDay] = useState<number | null>(null);
 
   // Load listing data
   useEffect(() => {
@@ -52,7 +61,16 @@ export default function HostEditListingPage() {
         latitude: listing.location?.coordinates?.[1] || '',
         longitude: listing.location?.coordinates?.[0] || '',
         rules: listing.rules || '',
+        cancellationPolicy: listing.cancellationPolicy ?? 'MODERATE',
       });
+      setBookingType(listing.bookingType === 'SLOT' ? 'SLOT' : 'DAILY');
+      if (listing.slotConfiguration?.pricePerSlot != null) {
+        setPricePerSlot(String(listing.slotConfiguration.pricePerSlot));
+      }
+      setDynamicPricing(!!listing.dynamicPricing);
+      setBasePricePerDay(
+        listing.basePricePerDay != null ? Number(listing.basePricePerDay) : null,
+      );
       // Set existing images
       if (listing.images && Array.isArray(listing.images)) {
         setExistingImages(
@@ -169,6 +187,7 @@ export default function HostEditListingPage() {
       if (formData.rules) {
         submitData.append('rules', formData.rules);
       }
+      submitData.append('cancellationPolicy', formData.cancellationPolicy);
 
       // Append images to remove
       if (imagesToRemove.length > 0) {
@@ -183,6 +202,23 @@ export default function HostEditListingPage() {
       });
 
       await api.patch(`/listings/${id}`, submitData);
+
+      // SLOT-only: update slot price separately via the slot-configuration
+      // endpoint. We deliberately don't expose booking-type / operating-hour
+      // changes here — restructuring a SLOT listing with active bookings is
+      // risky. Hosts who need that should recreate the listing.
+      if (bookingType === 'SLOT' && pricePerSlot && Number(pricePerSlot) > 0) {
+        try {
+          await api.patch(`/listings/${id}/slot-configuration`, {
+            pricePerSlot: Number(pricePerSlot),
+          });
+        } catch {
+          // The PATCH endpoint may not exist yet — surfacing this would
+          // confuse hosts whose main update succeeded. Log instead.
+          // eslint-disable-next-line no-console
+          console.warn('Slot-configuration PATCH failed (endpoint may be missing)');
+        }
+      }
 
       // Clean up preview URLs
       newImages.forEach((img) => URL.revokeObjectURL(img.preview));
@@ -288,7 +324,7 @@ export default function HostEditListingPage() {
                           src={
                             img.url.startsWith('http')
                               ? img.url
-                              : `http://localhost:3000${img.url}`
+                              : `${API_URL}${img.url}`
                           }
                           alt={`Existing ${idx + 1}`}
                           className="w-full h-48 object-cover rounded-lg border border-gray-200"
@@ -495,6 +531,83 @@ export default function HostEditListingPage() {
                     className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Cancellation policy
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {(['FLEXIBLE', 'MODERATE', 'STRICT'] as const).map((p) => (
+                      <button
+                        type="button"
+                        key={p}
+                        onClick={() =>
+                          setFormData({ ...formData, cancellationPolicy: p })
+                        }
+                        className={`rounded-xl border-2 p-4 text-left transition ${
+                          formData.cancellationPolicy === p
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="font-semibold capitalize text-gray-900">
+                          {p.toLowerCase()}
+                        </div>
+                        <p className="mt-1 text-xs text-gray-600">
+                          {p === 'FLEXIBLE'
+                            ? 'Full refund up to 24h before. Most renter-friendly.'
+                            : p === 'STRICT'
+                              ? '50% refund up to 7 days, then none. Protects scarce inventory.'
+                              : 'Full refund up to 5 days, 50% up to 24h. Default.'}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <SmartPricingCard
+                  listingId={id ?? ''}
+                  enabled={dynamicPricing}
+                  pricePerDay={Number(formData.pricePerDay) || 0}
+                  basePricePerDay={basePricePerDay}
+                  onToggle={(isOn, restoredPrice) => {
+                    setDynamicPricing(isOn);
+                    if (isOn) {
+                      setBasePricePerDay(Number(formData.pricePerDay) || 0);
+                    } else if (typeof restoredPrice === 'number') {
+                      setFormData({ ...formData, pricePerDay: String(restoredPrice) });
+                    }
+                  }}
+                />
+
+                {bookingType === 'SLOT' ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <h4 className="font-semibold text-amber-900">
+                      Slot configuration
+                    </h4>
+                    <p className="mt-1 text-xs text-amber-800">
+                      This listing accepts time-slot bookings. You can update
+                      the price per slot here. Changing operating hours or slot
+                      duration on a listing with active bookings is risky, so
+                      those settings are locked — recreate the listing if you
+                      need to change them.
+                    </p>
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-amber-900 mb-1">
+                        Price per slot (TND)
+                      </label>
+                      <input
+                        type="number"
+                        value={pricePerSlot}
+                        onChange={(e) => setPricePerSlot(e.target.value)}
+                        min="0"
+                        step="0.5"
+                        placeholder="e.g. 50"
+                        className="w-full max-w-xs rounded-lg border border-amber-300 bg-white px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
 

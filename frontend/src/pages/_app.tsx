@@ -1,6 +1,7 @@
 import '@/styles/globals.css';
 import 'leaflet/dist/leaflet.css';
 import type { AppProps } from 'next/app';
+import Head from 'next/head';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { useEffect, useState } from 'react';
@@ -82,6 +83,28 @@ export default function App({ Component, pageProps }: AppProps) {
 
   return (
     <QueryClientProvider client={queryClient}>
+      {/* Default site-wide meta. Per-page <Head> tags override these. */}
+      <Head>
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta name="theme-color" content="#0284c7" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <title>RentEverything — Rent stays, cars, sports & beach gear in Tunisia</title>
+        <meta
+          name="description"
+          content="Tunisia's AI-first rental marketplace. Find villas, cars, padel courts, jet skis and beach gear near you. Pay safely with Flouci or D17."
+        />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="RentEverything" />
+        <meta property="og:title" content="RentEverything — Rent anything in Tunisia" />
+        <meta
+          property="og:description"
+          content="Find villas, cars, padel courts, jet skis and beach gear near you. Pay safely with Flouci or D17."
+        />
+        <meta name="twitter:card" content="summary_large_image" />
+        <link rel="icon" href="/favicon.ico" />
+      </Head>
       <EnvCheck />
       <AuthProvider>
         <RouteGuard>

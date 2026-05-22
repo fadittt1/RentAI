@@ -23,6 +23,14 @@ import { PayoutsModule } from './modules/payouts/payouts.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { CloudinaryModule } from './modules/cloudinary/cloudinary.module';
 import { ChatbotModule } from './chatbot/chatbot.module';
+import { GeoModule } from './modules/geo/geo.module';
+import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
+import { QualityModule } from './modules/quality/quality.module';
+import { WishlistModule } from './modules/wishlist/wishlist.module';
+import { KycModule } from './modules/kyc/kyc.module';
+import { DisputesModule } from './modules/disputes/disputes.module';
+import { DynamicPricingModule } from './modules/dynamic-pricing/dynamic-pricing.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -56,6 +64,14 @@ import { ChatbotModule } from './chatbot/chatbot.module';
     PayoutsModule,
     CloudinaryModule,
     ChatbotModule,
+    GeoModule,
+    WhatsappModule,
+    QualityModule,
+    WishlistModule,
+    KycModule,
+    DisputesModule,
+    DynamicPricingModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -21,7 +21,7 @@
     "axios": "^1.13.2",
     "date-fns": "^4.1.0",
     "leaflet": "^1.9.4",
-    "lucide-react": "^1.8.0",
+    "lucide-react": "^1.14.0",
     "next": "16.1.2",
     "next-router-mock": "^1.0.5",
     "react": "19.2.3",

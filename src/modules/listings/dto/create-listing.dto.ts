@@ -3,14 +3,23 @@ import {
   IsNumber,
   IsNotEmpty,
   Min,
+  Max,
   IsUUID,
   IsLatitude,
   IsLongitude,
   IsOptional,
   IsArray,
+  IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
+
+// Tunisia bounding box (with small margin): lat 30..38, lng 7..12.
+// Rejects coords outside the country to catch host typos / accidental coords.
+const TN_LAT_MIN = 30;
+const TN_LAT_MAX = 38;
+const TN_LNG_MIN = 7;
+const TN_LNG_MAX = 12;
 
 export class CreateListingDto {
   @ApiProperty({ example: 'Mountain Bike for Rent' })
@@ -33,13 +42,17 @@ export class CreateListingDto {
   @Type(() => Number)
   pricePerDay: number;
 
-  @ApiProperty({ example: 36.8475 })
+  @ApiProperty({ example: 36.8475, description: `Must be inside Tunisia (${TN_LAT_MIN}..${TN_LAT_MAX})` })
   @IsLatitude()
+  @Min(TN_LAT_MIN, { message: 'Latitude is outside Tunisia' })
+  @Max(TN_LAT_MAX, { message: 'Latitude is outside Tunisia' })
   @Type(() => Number)
   latitude: number;
 
-  @ApiProperty({ example: 11.0939 })
+  @ApiProperty({ example: 11.0939, description: `Must be inside Tunisia (${TN_LNG_MIN}..${TN_LNG_MAX})` })
   @IsLongitude()
+  @Min(TN_LNG_MIN, { message: 'Longitude is outside Tunisia' })
+  @Max(TN_LNG_MAX, { message: 'Longitude is outside Tunisia' })
   @Type(() => Number)
   longitude: number;
 
@@ -63,6 +76,18 @@ export class CreateListingDto {
   @IsOptional()
   @IsString()
   bookingType?: 'DAILY' | 'SLOT';
+
+  @ApiProperty({
+    required: false,
+    enum: ['FLEXIBLE', 'MODERATE', 'STRICT'],
+    default: 'MODERATE',
+    description:
+      'Cancellation policy. FLEXIBLE: full refund up to 24h before start. ' +
+      'MODERATE: full refund up to 5 days, 50% up to 24h before. STRICT: 50% refund up to 7 days before, then none.',
+  })
+  @IsOptional()
+  @IsIn(['FLEXIBLE', 'MODERATE', 'STRICT'])
+  cancellationPolicy?: 'FLEXIBLE' | 'MODERATE' | 'STRICT';
 
   @ApiProperty({ required: false, type: [String] })
   @IsOptional()

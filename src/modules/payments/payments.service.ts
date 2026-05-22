@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Inject,
   forwardRef,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { PaymentIntent } from '@prisma/client';
@@ -13,11 +14,14 @@ import { BookingsService } from '../bookings/bookings.service';
 import { CancellationPolicyService } from '../../common/policies/cancellation-policy.service';
 import { LedgerService } from '../ledger/ledger.service';
 import { ConfigService } from '@nestjs/config';
+import { PaymentProviderRegistry } from './providers/payment-provider.registry';
+import { ProviderKey } from './providers/payment-provider.interface';
 
 @Injectable()
 export class PaymentsService {
   /** Default commission rate read from env, fallback 0.10 */
   private readonly defaultCommissionRate: number;
+  private readonly logger = new Logger(PaymentsService.name);
 
   constructor(
     private prisma: PrismaService,
@@ -26,9 +30,154 @@ export class PaymentsService {
     private cancellationPolicyService: CancellationPolicyService,
     private ledgerService: LedgerService,
     private configService: ConfigService,
+    private providerRegistry: PaymentProviderRegistry,
   ) {
     this.defaultCommissionRate =
       Number(this.configService.get<string>('COMMISSION_PERCENTAGE')) || 0.1;
+  }
+
+  // ─── Real-money checkout via external provider ─────────────────────────
+
+  /**
+   * Start a real-money checkout for a booking via the chosen provider.
+   * Returns a redirect URL the renter should be sent to.
+   *
+   * Idempotent: if a checkout was already started and is still pending, we
+   * return the existing redirect URL instead of creating a duplicate.
+   */
+  async createCheckout(
+    bookingId: string,
+    userId: string,
+    providerKey: ProviderKey,
+  ): Promise<{ redirectUrl: string; provider: ProviderKey }> {
+    const intent = await this.prisma.paymentIntent.findUnique({
+      where: { bookingId },
+    });
+    if (!intent) {
+      throw new NotFoundException(
+        `Payment intent not found for booking ${bookingId}`,
+      );
+    }
+    if (intent.renterId !== userId) {
+      throw new ForbiddenException(
+        'Only the renter can pay for this booking',
+      );
+    }
+    if (intent.status === 'captured') {
+      throw new BadRequestException('This booking is already paid.');
+    }
+    if (intent.status === 'cancelled' || intent.status === 'refunded') {
+      throw new BadRequestException(
+        `Cannot pay: payment is ${intent.status}.`,
+      );
+    }
+
+    // Reuse the live link if we already created one and the user is just
+    // hitting the button again. Avoids a second Flouci payment per booking.
+    if (intent.redirectUrl && intent.provider === providerKey && intent.providerRef) {
+      return { redirectUrl: intent.redirectUrl, provider: providerKey };
+    }
+
+    const provider = this.providerRegistry.get(providerKey);
+    if (!provider.isConfigured()) {
+      throw new BadRequestException(
+        `Payment provider "${providerKey}" is not available right now.`,
+      );
+    }
+
+    const frontendBase =
+      this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
+    const apiBase =
+      this.configService.get<string>('API_PUBLIC_URL') ??
+      this.configService.get<string>('BACKEND_URL') ??
+      'http://localhost:3001';
+
+    const successUrl = `${apiBase}/api/payments/${providerKey}/callback?booking=${encodeURIComponent(bookingId)}&outcome=success`;
+    const failUrl = `${frontendBase}/booking/${bookingId}/pay?outcome=failed`;
+
+    const result = await provider.createPayment({
+      amount: Number(intent.amount),
+      currency: 'TND',
+      successUrl,
+      failUrl,
+      description: `RentEverything booking ${bookingId}`,
+      reference: bookingId,
+    });
+
+    await this.prisma.paymentIntent.update({
+      where: { id: intent.id },
+      data: {
+        provider: providerKey,
+        providerRef: result.providerRef,
+        redirectUrl: result.redirectUrl,
+        status: intent.status === 'created' ? 'authorized' : intent.status,
+      },
+    });
+
+    this.logger.log(
+      `Checkout started: booking=${bookingId} provider=${providerKey} ref=${result.providerRef}`,
+    );
+
+    return { redirectUrl: result.redirectUrl, provider: providerKey };
+  }
+
+  /**
+   * Called when the provider redirects the renter back to us. We re-fetch the
+   * payment server-to-server to confirm — the user's query string alone is
+   * never trusted.
+   *
+   * On success, this goes through the existing `capture()` flow so the ledger
+   * entries are posted exactly the same way as in the simulated path.
+   */
+  async handleProviderCallback(
+    providerKey: ProviderKey,
+    bookingId: string,
+  ): Promise<{ status: 'success' | 'failed' | 'pending' }> {
+    const intent = await this.prisma.paymentIntent.findUnique({
+      where: { bookingId },
+    });
+    if (!intent) {
+      throw new NotFoundException(
+        `Payment intent not found for booking ${bookingId}`,
+      );
+    }
+
+    // Already settled — nothing more to do
+    if (intent.status === 'captured') return { status: 'success' };
+
+    if (!intent.providerRef || intent.provider !== providerKey) {
+      this.logger.warn(
+        `Callback for booking ${bookingId} but no matching provider ref`,
+      );
+      return { status: 'failed' };
+    }
+
+    const provider = this.providerRegistry.get(providerKey);
+    const providerStatus = await provider.verifyPayment(intent.providerRef);
+
+    if (providerStatus === 'success') {
+      await this.capture(bookingId);
+      await this.prisma.paymentIntent.update({
+        where: { id: intent.id },
+        data: { paidAt: new Date() },
+      });
+      this.logger.log(`Provider ${providerKey} confirmed payment for ${bookingId}`);
+      return { status: 'success' };
+    }
+
+    if (providerStatus === 'failed' || providerStatus === 'cancelled') {
+      this.logger.log(
+        `Provider ${providerKey} reports ${providerStatus} for ${bookingId}`,
+      );
+      return { status: 'failed' };
+    }
+
+    return { status: 'pending' };
+  }
+
+  /** Which real-money providers are usable in this deployment. */
+  availableProviders(): ProviderKey[] {
+    return this.providerRegistry.available();
   }
 
   /**

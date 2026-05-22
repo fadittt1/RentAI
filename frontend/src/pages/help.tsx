@@ -111,7 +111,7 @@ export default function HelpPage() {
 
               <div className="space-y-3">
                 <a
-                  href="#"
+                  href="#chat-assistant"
                   className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition group"
                 >
                   <span className="text-gray-700 group-hover:text-blue-500">
@@ -120,7 +120,7 @@ export default function HelpPage() {
                   <i className="fa-solid fa-chevron-right text-gray-400 group-hover:text-blue-500" />
                 </a>
                 <a
-                  href="#"
+                  href="#chat-assistant"
                   className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition group"
                 >
                   <span className="text-gray-700 group-hover:text-blue-500">
@@ -129,7 +129,7 @@ export default function HelpPage() {
                   <i className="fa-solid fa-chevron-right text-gray-400 group-hover:text-blue-500" />
                 </a>
                 <a
-                  href="#"
+                  href="#chat-assistant"
                   className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition group"
                 >
                   <span className="text-gray-700 group-hover:text-blue-500">
@@ -138,7 +138,7 @@ export default function HelpPage() {
                   <i className="fa-solid fa-chevron-right text-gray-400 group-hover:text-blue-500" />
                 </a>
                 <a
-                  href="#"
+                  href="#chat-assistant"
                   className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition group"
                 >
                   <span className="text-gray-700 group-hover:text-blue-500">
@@ -147,7 +147,7 @@ export default function HelpPage() {
                   <i className="fa-solid fa-chevron-right text-gray-400 group-hover:text-blue-500" />
                 </a>
                 <a
-                  href="#"
+                  href="#chat-assistant"
                   className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition group"
                 >
                   <span className="text-gray-700 group-hover:text-blue-500">
@@ -178,7 +178,7 @@ export default function HelpPage() {
 
               <div className="space-y-3">
                 <a
-                  href="#"
+                  href="#chat-assistant"
                   className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition group"
                 >
                   <span className="text-gray-700 group-hover:text-green-500">
@@ -187,7 +187,7 @@ export default function HelpPage() {
                   <i className="fa-solid fa-chevron-right text-gray-400 group-hover:text-green-500" />
                 </a>
                 <a
-                  href="#"
+                  href="#chat-assistant"
                   className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition group"
                 >
                   <span className="text-gray-700 group-hover:text-green-500">
@@ -196,7 +196,7 @@ export default function HelpPage() {
                   <i className="fa-solid fa-chevron-right text-gray-400 group-hover:text-green-500" />
                 </a>
                 <a
-                  href="#"
+                  href="#chat-assistant"
                   className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition group"
                 >
                   <span className="text-gray-700 group-hover:text-green-500">
@@ -205,7 +205,7 @@ export default function HelpPage() {
                   <i className="fa-solid fa-chevron-right text-gray-400 group-hover:text-green-500" />
                 </a>
                 <a
-                  href="#"
+                  href="#chat-assistant"
                   className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition group"
                 >
                   <span className="text-gray-700 group-hover:text-green-500">
@@ -214,7 +214,7 @@ export default function HelpPage() {
                   <i className="fa-solid fa-chevron-right text-gray-400 group-hover:text-green-500" />
                 </a>
                 <a
-                  href="#"
+                  href="#chat-assistant"
                   className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition group"
                 >
                   <span className="text-gray-700 group-hover:text-green-500">

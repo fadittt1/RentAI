@@ -36,9 +36,51 @@ export class UsersService {
       data: {
         ...createUserDto,
         roles: createUserDto.roles || ['user'],
-        // Auto-verify email/phone in development for easier testing
-        verifiedEmail: createUserDto.email ? true : false,
-        verifiedPhone: createUserDto.phone ? true : false,
+      },
+    });
+  }
+
+  /**
+   * Find a user by their Google account, or create a new local account.
+   * If the email matches an existing user, link the Google id to that account
+   * (so a renter who signed up with email/password can later use Google).
+   */
+  async findOrCreateFromGoogle(payload: {
+    googleId: string;
+    email: string;
+    name: string;
+    avatarUrl?: string;
+  }): Promise<User> {
+    const byGoogle = await this.prisma.user.findUnique({
+      where: { googleId: payload.googleId },
+    });
+    if (byGoogle) return byGoogle;
+
+    const byEmail = await this.prisma.user.findUnique({
+      where: { email: payload.email },
+    });
+    if (byEmail) {
+      // Link Google to the existing account and mark email verified —
+      // Google has already verified this address for us.
+      return this.prisma.user.update({
+        where: { id: byEmail.id },
+        data: {
+          googleId: payload.googleId,
+          verifiedEmail: true,
+          avatarUrl: byEmail.avatarUrl ?? payload.avatarUrl,
+        },
+      });
+    }
+
+    return this.prisma.user.create({
+      data: {
+        name: payload.name,
+        email: payload.email,
+        googleId: payload.googleId,
+        avatarUrl: payload.avatarUrl,
+        verifiedEmail: true,
+        roles: ['user'],
+        // passwordHash stays null — user logs in via Google
       },
     });
   }
@@ -69,6 +111,49 @@ export class UsersService {
     return user;
   }
 
+  /**
+   * Self-profile shape: everything except the password hash, plus a derived
+   * `hasPassword` boolean for the frontend so it can show / hide the
+   * "Change password" affordance.
+   *
+   * The internal `findOne` returns the raw row (passwordHash included)
+   * because auth still needs it for bcrypt.compare; HTTP handlers must use
+   * this instead.
+   */
+  async findOneSafe(id: string) {
+    const user = await this.findOne(id);
+    const { passwordHash, ...safe } = user;
+    return { ...safe, hasPassword: !!passwordHash };
+  }
+
+  /**
+   * Public profile shape: only the fields anyone is allowed to see about
+   * another user (e.g. on a listing detail page). Drops contact info, the
+   * Google id, the password hash, internal moderation timestamps, and home
+   * location coordinates.
+   */
+  async findOnePublic(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        avatarUrl: true,
+        isHost: true,
+        verifiedEmail: true,
+        verifiedPhone: true,
+        ratingAvg: true,
+        ratingCount: true,
+        createdAt: true,
+        homeCityName: true,
+      },
+    });
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+    return user;
+  }
+
   async findByEmailOrPhone(identifier: string): Promise<User | null> {
     // Try email first, then phone
     const user = await this.prisma.user.findFirst({
@@ -93,17 +178,6 @@ export class UsersService {
     return this.prisma.user.update({
       where: { id },
       data: updateUserDto,
-    });
-  }
-
-  async verifyUser(userId: string): Promise<User> {
-    const user = await this.findOne(userId);
-    return this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        verifiedEmail: user.email ? true : undefined,
-        verifiedPhone: user.phone ? true : undefined,
-      },
     });
   }
 

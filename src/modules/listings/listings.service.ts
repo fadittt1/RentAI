@@ -72,16 +72,19 @@ export class ListingsService {
       // Generate UUID in Node.js for portability (no pgcrypto extension needed)
       const listingId = crypto.randomUUID();
 
+      const cancellationPolicy = (createListingDto as any).cancellationPolicy ?? 'MODERATE';
       await this.prisma.$executeRaw`
         INSERT INTO listings (
           id, "hostId", title, description, "categoryId", images, "pricePerDay",
-          location, address, rules, availability, "isActive", status, "bookingType", "createdAt", "updatedAt"
+          location, address, rules, availability, "isActive", status, "bookingType",
+          "cancellation_policy", "createdAt", "updatedAt"
         ) VALUES (
           ${listingId}::uuid, ${hostId}, ${createListingDto.title}, ${createListingDto.description},
           ${createListingDto.categoryId}, ARRAY[]::text[], ${createListingDto.pricePerDay},
           ST_SetSRID(ST_GeomFromText(${locationWKT}), 4326), ${createListingDto.address},
           ${createListingDto.rules || null}, ${createListingDto.availability ? JSON.stringify(createListingDto.availability) : null}::jsonb,
-          true, 'ACTIVE'::"ListingStatus", ${bookingType}::"BookingType", NOW(), NOW()
+          true, 'ACTIVE'::"ListingStatus", ${bookingType}::"BookingType",
+          ${cancellationPolicy}::"CancellationPolicy", NOW(), NOW()
         )
         RETURNING *
       `;
@@ -191,13 +194,33 @@ export class ListingsService {
       const params: any[] = [];
       let paramIndex = 1;
 
-      // Text search
+      // ── Text search: FTS (ts_rank) + ILIKE fallback ──────────────────────────
+      // $N  = raw query string for websearch_to_tsquery
+      // $N+1 = %q% pattern for ILIKE fallback (in case tsv column is NULL)
+      let tsvRankSelect = '0.0 as tsv_rank';
+      let ftsParamIdx: number | null = null;
+
       if (filters.q) {
+        const ftsP  = paramIndex;
+        const ilikeP = paramIndex + 1;
         conditions.push(
-          `(l.title ILIKE $${paramIndex} OR l.description ILIKE $${paramIndex})`,
+          `(l.tsv @@ websearch_to_tsquery('french', $${ftsP}) OR l.title ILIKE $${ilikeP} OR l.description ILIKE $${ilikeP})`,
         );
-        params.push(`%${filters.q}%`);
-        paramIndex++;
+        params.push(filters.q, `%${filters.q}%`);
+        ftsParamIdx   = ftsP;
+        tsvRankSelect = `ts_rank(coalesce(l.tsv, ''::tsvector), websearch_to_tsquery('french', $${ftsP})) as tsv_rank`;
+        paramIndex   += 2;
+      }
+
+      // ── Multi-amenity AND filtering (improvement #3) ──────────────────────
+      if (filters.amenities && filters.amenities.length > 0) {
+        for (const amenity of filters.amenities) {
+          conditions.push(
+            `(l.title ILIKE $${paramIndex} OR l.description ILIKE $${paramIndex})`,
+          );
+          params.push(`%${amenity}%`);
+          paramIndex++;
+        }
       }
 
       // Filter by category
@@ -221,23 +244,30 @@ export class ListingsService {
 
       // Geo search
       let distanceSelect = '';
-      let orderByClause = 'l."createdAt" DESC';
+      // Default: rank by FTS relevance when there's a keyword, else by recency
+      let orderByClause = ftsParamIdx !== null
+        ? 'tsv_rank DESC, l."createdAt" DESC'
+        : 'l."createdAt" DESC';
 
       if (hasLatLng) {
         const lat = filters.lat as number;
         const lng = filters.lng as number;
-        const radiusKm = Math.min(filters.radiusKm || 10, 50);
-        const maxDistanceMeters = radiusKm * 1000;
 
-        conditions.push(`
-          ST_DWithin(
-            l.location::geography,
-            ST_SetSRID(ST_MakePoint($${paramIndex}, $${paramIndex + 1}), 4326)::geography,
-            $${paramIndex + 2}
-          )
-        `);
-        params.push(lng, lat, maxDistanceMeters);
-        paramIndex += 3;
+        // Only apply radius filter when radiusKm is explicitly provided (> 0).
+        // When omitted (map "show all" mode), skip ST_DWithin but still sort by distance.
+        if (filters.radiusKm !== undefined && filters.radiusKm > 0) {
+          const radiusKm = Math.min(filters.radiusKm, 60);
+          const maxDistanceMeters = radiusKm * 1000;
+          conditions.push(`
+            ST_DWithin(
+              l.location::geography,
+              ST_SetSRID(ST_MakePoint($${paramIndex}, $${paramIndex + 1}), 4326)::geography,
+              $${paramIndex + 2}
+            )
+          `);
+          params.push(lng, lat, maxDistanceMeters);
+          paramIndex += 3;
+        }
 
         if (filters.sortBy === 'distance') {
           distanceSelect = `, ST_Distance(
@@ -247,12 +277,25 @@ export class ListingsService {
           params.push(lng, lat);
           paramIndex += 2;
           orderByClause = 'distance ASC';
+        } else if (ftsParamIdx !== null) {
+          // Blended: FTS relevance first, then distance as tiebreaker
+          distanceSelect = `, ST_Distance(
+            l.location::geography,
+            ST_SetSRID(ST_MakePoint($${paramIndex}, $${paramIndex + 1}), 4326)::geography
+          ) as distance`;
+          params.push(lng, lat);
+          paramIndex += 2;
+          orderByClause = 'tsv_rank DESC, distance ASC';
         }
       }
 
+      // Explicit sort overrides
+      if (filters.sortBy === 'price_asc')  orderByClause = 'l."pricePerDay" ASC';
+      if (filters.sortBy === 'price_desc') orderByClause = 'l."pricePerDay" DESC';
+
       // Pagination
       const page = filters.page || 1;
-      const limit = Math.min(filters.limit || 20, 100);
+      const limit = Math.min(filters.limit || 20, 200);
       const offset = (page - 1) * limit;
 
       // Build query
@@ -260,12 +303,14 @@ export class ListingsService {
         conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
       const query = `
-        SELECT 
+        SELECT
           l.id, l.title, l.description, l."pricePerDay",
           ST_AsGeoJSON(l.location)::text as location, l.address, l.images, l."createdAt", l."bookingType",
+          l.rating_avg as "listing_ratingAvg", l.booking_count_30d as "listing_bookingCount30d",
           c.id as "category_id", c.name as "category_name", c.icon as "category_icon", c.slug as "category_slug",
           h.id as "host_id", h.name as "host_name", h."ratingAvg" as "host_ratingAvg"
           ${distanceSelect}
+          , ${tsvRankSelect}
         FROM listings l
         LEFT JOIN categories c ON l."categoryId" = c.id
         LEFT JOIN users h ON l."hostId" = h.id
@@ -289,6 +334,10 @@ export class ListingsService {
         images: row.images,
         createdAt: row.createdAt,
         bookingType: row.bookingType,
+        ratingAvg: Number(row.listing_ratingAvg ?? 0),
+        bookingCount30d: Number(row.listing_bookingCount30d ?? 0),
+        tsvRank: Number(row.tsv_rank ?? 0),
+        distance: row.distance != null ? Number(row.distance) : undefined,
         category: {
           id: row.category_id,
           name: row.category_name,
@@ -335,7 +384,7 @@ export class ListingsService {
         }
 
         const page = filters.page || 1;
-        const limit = Math.min(filters.limit || 20, 100);
+        const limit = Math.min(filters.limit || 20, 200);
 
         return await this.prisma.listing.findMany({
           where,

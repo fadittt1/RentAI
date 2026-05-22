@@ -52,18 +52,26 @@ export class ListingAssistantService {
       throw new BadRequestException('AI features are not enabled');
     }
 
-    const prompt = `Improve this ${category} rental listing description. Make it more engaging and professional while keeping the same information. Keep it concise (2-3 paragraphs max).
+    const prompt = `Rewrite the following ${category} rental listing description so it is more engaging, vivid, and professional. Keep the same facts. Keep it concise (2-3 short paragraphs). Output ONLY the rewritten description — no preface, no explanation, no quotes, no "Here is", no options to pick from.
 
-Current description:
+Original:
+"""
 ${currentDescription}
+"""`;
 
-Enhanced description:`;
-
-    return await this.aiService.generateCompletion(prompt, {
-      maxTokens: 400,
+    const raw = await this.aiService.generateCompletion(prompt, {
+      // Gemini 2.5-flash spends "thinking" tokens before output, so we budget generously.
+      maxTokens: 1500,
       temperature: 0.7,
-      systemPrompt: `You are an expert copywriter for rental listings. Enhance descriptions to be more compelling while staying truthful.`,
+      systemPrompt: `You are an expert copywriter for rental listings. Reply with the rewritten description only — never with commentary, options, or meta-text.`,
     });
+
+    // Strip common preamble patterns that LLMs sometimes inject despite instructions
+    return raw
+      .replace(/^["'`]+|["'`]+$/g, '')
+      .replace(/^(here(?:'s| is| are)[^:]*:|enhanced description:|option \d+:?)\s*/i, '')
+      .replace(/^\s*\*\*[^*]+\*\*\s*/g, '')
+      .trim();
   }
 
   /**
@@ -81,20 +89,55 @@ Enhanced description:`;
     const featuresText = keyFeatures.join(', ');
     const locationText = location ? ` in ${location}` : '';
 
-    const prompt = `Generate 3 catchy, concise titles (max 60 characters each) for a ${category} rental listing${locationText} with these features: ${featuresText}.
+    const prompt = `Generate exactly 3 catchy rental listing titles for a ${category}${locationText}. Features: ${featuresText}.
 
-Return only the titles, one per line, without numbering or bullets.`;
+Rules:
+- Each title is max 60 characters.
+- Output ONLY a JSON array of 3 strings. No preface, no explanation, no markdown.
+- Example: ["Title one","Title two","Title three"]`;
 
     const response = await this.aiService.generateCompletion(prompt, {
-      maxTokens: 150,
+      // Gemini 2.5-flash spends "thinking" tokens before output, so we budget generously.
+      maxTokens: 1500,
       temperature: 0.9,
-      systemPrompt: `You are a creative copywriter specializing in rental listing titles. Create attention-grabbing, honest titles.`,
+      systemPrompt: `You are a creative copywriter for rental listings. Always reply with a JSON array of strings — never with prose, options, or markdown.`,
     });
 
-    return response
+    // Try JSON parse first (preferred path), fall back to line-splitting.
+    const cleaned = response
+      .replace(/```json?/gi, '')
+      .replace(/```/g, '')
+      .trim();
+
+    try {
+      const match = cleaned.match(/\[[\s\S]*\]/);
+      if (match) {
+        const arr = JSON.parse(match[0]);
+        if (Array.isArray(arr)) {
+          const titles = arr
+            .map((t) => String(t).trim())
+            .filter((t) => t.length > 0)
+            .slice(0, 3);
+          if (titles.length > 0) return titles;
+        }
+      }
+    } catch {
+      // fall through to line-splitting
+    }
+
+    return cleaned
       .split('\n')
-      .map((title) => title.trim())
-      .filter((title) => title.length > 0)
+      .map((title) =>
+        title
+          .trim()
+          // Strip numbering, bullets, surrounding quotes, "Title N:" prefixes
+          .replace(/^[\d]+\.\s*/, '')
+          .replace(/^[-*•]\s*/, '')
+          .replace(/^title\s*\d*\s*:?\s*/i, '')
+          .replace(/^["'`]+|["'`,]+$/g, '')
+          .trim(),
+      )
+      .filter((title) => title.length > 0 && title.length <= 80)
       .slice(0, 3);
   }
 

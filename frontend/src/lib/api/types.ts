@@ -7,6 +7,7 @@ export type Listing = {
   images?: string[];
   category?: { id: string; name: string; slug: string };
   location?: { type: 'Point'; coordinates: [number, number] };
+  distance?: number; // metres, present when sorted by distance
 };
 
 export type Booking = {
@@ -28,6 +29,9 @@ export type User = {
   isHost: boolean;
   roles?: string[];
   avatarUrl?: string | null;
+  homeLat?: number | null;
+  homeLng?: number | null;
+  homeCityName?: string | null;
 };
 
 export type Category = {

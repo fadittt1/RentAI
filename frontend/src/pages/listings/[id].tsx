@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import Head from 'next/head';
+import type { GetServerSideProps } from 'next';
 import { Layout } from '@/components/layout/Layout';
 import { useRouter } from 'next/router';
 import { useListing } from '@/lib/api/hooks/useListing';
@@ -8,6 +10,48 @@ import { LoadingCard } from '@/components/ui/LoadingCard';
 import { InlineError } from '@/components/ui/InlineError';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useState, useEffect, useMemo } from 'react';
+import { BookingProtectionBadge } from '@/components/shared/BookingProtectionBadge';
+import { WishlistButton } from '@/components/shared/WishlistButton';
+
+interface SeoData {
+  title: string;
+  description: string;
+  image: string | null;
+  url: string;
+  pricePerDay: number | null;
+  ratingAvg: number;
+  ratingCount: number;
+  jsonLd: string;
+}
+
+interface PageProps {
+  seo: SeoData | null;
+}
+
+// ── cancellation policy display helpers ──────────────────────────────────────
+function cancellationPolicyRules(
+  policy: 'FLEXIBLE' | 'MODERATE' | 'STRICT',
+): string[] {
+  switch (policy) {
+    case 'FLEXIBLE':
+      return [
+        'Full refund up to 24h before start',
+        'No refund within 24h of start',
+      ];
+    case 'STRICT':
+      return [
+        '50% refund up to 7 days before start',
+        'No refund within 7 days',
+      ];
+    case 'MODERATE':
+    default:
+      return [
+        'Full refund up to 5 days before start',
+        '50% refund up to 24h before',
+        'No refund within 24h',
+      ];
+  }
+}
 
 // ── calendar helpers ──────────────────────────────────────────────────────────
 function toYMD(d: Date) {
@@ -25,7 +69,7 @@ function daysBetween(a: string, b: string) {
   return Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000));
 }
 
-export default function ListingDetailsPage() {
+export default function ListingDetailsPage({ seo }: PageProps) {
   const router = useRouter();
   const id = router.query.id as string | undefined;
   const listingQuery = useListing(id);
@@ -128,6 +172,26 @@ export default function ListingDetailsPage() {
 
   return (
     <Layout>
+      {seo ? (
+        <Head>
+          <title>{seo.title}</title>
+          <meta name="description" content={seo.description} />
+          <link rel="canonical" href={seo.url} />
+          <meta property="og:type" content="product" />
+          <meta property="og:title" content={seo.title} />
+          <meta property="og:description" content={seo.description} />
+          <meta property="og:url" content={seo.url} />
+          {seo.image ? <meta property="og:image" content={seo.image} /> : null}
+          <meta name="twitter:card" content="summary_large_image" />
+          <meta name="twitter:title" content={seo.title} />
+          <meta name="twitter:description" content={seo.description} />
+          {seo.image ? <meta name="twitter:image" content={seo.image} /> : null}
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: seo.jsonLd }}
+          />
+        </Head>
+      ) : null}
       {listingQuery.isLoading ? (
         <div className="mx-auto max-w-7xl px-6 py-8">
           <LoadingCard />
@@ -147,18 +211,35 @@ export default function ListingDetailsPage() {
             className="border-b border-gray-100 bg-white"
           >
             <div className="mx-auto max-w-7xl px-6 py-3">
-              <div className="flex items-center text-sm text-gray-600">
-                <Link href="/" className="transition hover:text-gray-900">
-                  Home
-                </Link>
-                <i className="fa-solid fa-chevron-right mx-2 text-xs"></i>
-                <Link href="/search" className="transition hover:text-gray-900">
-                  {listing.category?.name || 'Listings'}
-                </Link>
-                <i className="fa-solid fa-chevron-right mx-2 text-xs"></i>
-                <span className="font-medium text-gray-900">
-                  {listing.title}
-                </span>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center text-sm text-gray-600">
+                  <Link href="/" className="transition hover:text-gray-900">
+                    Home
+                  </Link>
+                  <i className="fa-solid fa-chevron-right mx-2 text-xs"></i>
+                  <Link
+                    href={
+                      listing.category?.slug
+                        ? `/search?categorySlug=${listing.category.slug}`
+                        : '/search'
+                    }
+                    className="transition hover:text-gray-900"
+                  >
+                    {listing.category?.name || 'Listings'}
+                  </Link>
+                  <i className="fa-solid fa-chevron-right mx-2 text-xs"></i>
+                  <span className="truncate font-medium text-gray-900">
+                    {listing.title}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => router.back()}
+                  className="hidden shrink-0 items-center gap-1.5 text-sm text-gray-500 transition hover:text-gray-900 md:flex"
+                >
+                  <i className="fa-solid fa-arrow-left text-xs" />
+                  Back
+                </button>
               </div>
             </div>
           </section>
@@ -172,13 +253,21 @@ export default function ListingDetailsPage() {
                     {listing.title}
                   </h1>
                   <div className="flex items-center space-x-4 text-sm">
-                    <div className="flex items-center">
-                      <i className="fa-solid fa-star mr-1 text-yellow-400"></i>
-                      <span className="font-semibold">4.8</span>
-                      <span className="ml-1 text-gray-500">
-                        ({reviews.length} reviews)
-                      </span>
-                    </div>
+                    {Number(listing.ratingCount ?? 0) > 0 ? (
+                      <div className="flex items-center">
+                        <i className="fa-solid fa-star mr-1 text-yellow-400"></i>
+                        <span className="font-semibold">
+                          {Number(listing.ratingAvg ?? 0).toFixed(1)}
+                        </span>
+                        <span className="ml-1 text-gray-500">
+                          ({listing.ratingCount}{' '}
+                          {Number(listing.ratingCount) === 1 ? 'review' : 'reviews'}
+                          )
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-gray-400">No reviews yet</span>
+                    )}
                     <span className="text-gray-400">•</span>
                     <div className="flex items-center text-gray-700">
                       <i className="fa-solid fa-location-dot mr-1 text-blue-500"></i>
@@ -187,14 +276,26 @@ export default function ListingDetailsPage() {
                   </div>
                 </div>
                 <div className="flex items-center space-x-3">
-                  <button className="flex items-center space-x-2 rounded-lg px-4 py-2 transition hover:bg-gray-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof navigator !== 'undefined' && navigator.share) {
+                        navigator
+                          .share({
+                            title: listing.title,
+                            url: typeof window !== 'undefined' ? window.location.href : '',
+                          })
+                          .catch(() => undefined);
+                      } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                        navigator.clipboard.writeText(window.location.href).catch(() => undefined);
+                      }
+                    }}
+                    className="flex items-center space-x-2 rounded-lg px-4 py-2 transition hover:bg-gray-100"
+                  >
                     <i className="fa-solid fa-share-nodes text-gray-700"></i>
                     <span className="text-sm font-medium">Share</span>
                   </button>
-                  <button className="flex items-center space-x-2 rounded-lg px-4 py-2 transition hover:bg-gray-100">
-                    <i className="fa-regular fa-heart text-gray-700"></i>
-                    <span className="text-sm font-medium">Save</span>
-                  </button>
+                  <WishlistButton listingId={listing.id} variant="inline" />
                 </div>
               </div>
             </div>
@@ -554,7 +655,9 @@ export default function ListingDetailsPage() {
                       <div className="mb-6 flex items-center justify-between">
                         <h2 className="flex items-center text-xl font-bold text-gray-900">
                           <i className="fa-solid fa-star mr-2 text-yellow-400"></i>
-                          4.8 · {reviews.length} reviews
+                          {Number(listing.ratingCount ?? 0) > 0
+                            ? `${Number(listing.ratingAvg ?? 0).toFixed(1)} · ${listing.ratingCount} ${Number(listing.ratingCount) === 1 ? 'review' : 'reviews'}`
+                            : 'No reviews yet'}
                         </h2>
                       </div>
 
@@ -640,13 +743,22 @@ export default function ListingDetailsPage() {
                             />
                           </div>
                           <div className="mt-2 text-center">
-                            <div className="flex items-center justify-center text-sm">
-                              <i className="fa-solid fa-star mr-1 text-yellow-400"></i>
-                              <span className="font-semibold">4.9</span>
-                            </div>
-                            <p className="mt-1 text-xs text-gray-500">
-                              {reviews.length} reviews
-                            </p>
+                            {Number(listing.host?.ratingCount ?? 0) > 0 ? (
+                              <>
+                                <div className="flex items-center justify-center text-sm">
+                                  <i className="fa-solid fa-star mr-1 text-yellow-400"></i>
+                                  <span className="font-semibold">
+                                    {Number(listing.host.ratingAvg ?? 0).toFixed(1)}
+                                  </span>
+                                </div>
+                                <p className="mt-1 text-xs text-gray-500">
+                                  {listing.host.ratingCount}{' '}
+                                  {Number(listing.host.ratingCount) === 1 ? 'review' : 'reviews'}
+                                </p>
+                              </>
+                            ) : (
+                              <p className="text-xs text-gray-400">New host</p>
+                            )}
                           </div>
                         </div>
                         <div className="flex-1">
@@ -702,12 +814,17 @@ export default function ListingDetailsPage() {
                       </div>
                       <div>
                         <h3 className="mb-3 font-semibold text-gray-900">
-                          Cancellation
+                          Cancellation —{' '}
+                          <span className="text-gray-600 capitalize">
+                            {(listing.cancellationPolicy ?? 'MODERATE').toLowerCase()}
+                          </span>
                         </h3>
                         <ul className="space-y-2 text-sm text-gray-700">
-                          <li>Free cancellation 24h before</li>
-                          <li>50% refund within 24h</li>
-                          <li>No refund after pickup</li>
+                          {cancellationPolicyRules(
+                            listing.cancellationPolicy ?? 'MODERATE',
+                          ).map((line, i) => (
+                            <li key={i}>{line}</li>
+                          ))}
                         </ul>
                       </div>
                       <div>
@@ -737,13 +854,21 @@ export default function ListingDetailsPage() {
                         </span>
                         <span className="ml-2 text-gray-600">/ day</span>
                       </div>
-                      <div className="flex items-center text-sm">
-                        <i className="fa-solid fa-star mr-1 text-yellow-400"></i>
-                        <span className="mr-1 font-semibold">4.8</span>
-                        <span className="text-gray-500">
-                          ({reviews.length} reviews)
-                        </span>
-                      </div>
+                      {Number(listing.ratingCount ?? 0) > 0 ? (
+                        <div className="flex items-center text-sm">
+                          <i className="fa-solid fa-star mr-1 text-yellow-400"></i>
+                          <span className="mr-1 font-semibold">
+                            {Number(listing.ratingAvg ?? 0).toFixed(1)}
+                          </span>
+                          <span className="text-gray-500">
+                            ({listing.ratingCount}{' '}
+                            {Number(listing.ratingCount) === 1 ? 'review' : 'reviews'}
+                            )
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-400">No reviews yet</div>
+                      )}
                     </div>
 
                     <div className="mb-6 space-y-3">
@@ -858,6 +983,10 @@ export default function ListingDetailsPage() {
                         {nightsCount > 0 ? formatTnd(total) : '—'}
                       </span>
                     </div>
+
+                    <div className="pt-6">
+                      <BookingProtectionBadge variant="card" />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -876,4 +1005,101 @@ export default function ListingDetailsPage() {
       )}
     </Layout>
   );
+}
+
+/**
+ * Server-side fetch so the HTML response carries real meta tags + JSON-LD.
+ * Without this the page renders an empty shell for crawlers and we miss
+ * all organic search traffic — the highest-converting acquisition channel
+ * for a marketplace.
+ *
+ * Falls back to `seo: null` (no per-page tags, _app.tsx defaults kick in)
+ * if the API is unreachable. Never crashes the page render.
+ */
+export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => {
+  const id = ctx.params?.id as string | undefined;
+  if (!id) return { props: { seo: null } };
+
+  const apiBase =
+    process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ||
+    process.env.API_INTERNAL_URL?.replace(/\/$/, '') ||
+    'http://localhost:3001';
+  const siteBase =
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ||
+    'https://renteverything.tn';
+
+  try {
+    const res = await fetch(`${apiBase}/api/listings/${encodeURIComponent(id)}`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return { props: { seo: null } };
+    const body = await res.json();
+    const listing = body?.data ?? body;
+    if (!listing?.id) return { props: { seo: null } };
+
+    const title =
+      `${listing.title} — ${formatCity(listing.address)} | RentEverything`.slice(0, 70);
+    const description =
+      (listing.description ?? '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 160) || `Rent ${listing.title} on RentEverything.`;
+    const url = `${siteBase}/listings/${listing.id}`;
+    const image = Array.isArray(listing.images) && listing.images[0]
+      ? (String(listing.images[0]).startsWith('http')
+          ? listing.images[0]
+          : `${apiBase}${listing.images[0]}`)
+      : null;
+
+    const jsonLd = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'Product',
+      name: listing.title,
+      description,
+      image: image ? [image] : undefined,
+      url,
+      offers: listing.pricePerDay
+        ? {
+            '@type': 'Offer',
+            priceCurrency: 'TND',
+            price: Number(listing.pricePerDay),
+            availability: listing.isActive
+              ? 'https://schema.org/InStock'
+              : 'https://schema.org/OutOfStock',
+            url,
+          }
+        : undefined,
+      aggregateRating:
+        Number(listing.ratingAvg) > 0 && Number(listing.ratingCount ?? 0) > 0
+          ? {
+              '@type': 'AggregateRating',
+              ratingValue: Number(listing.ratingAvg),
+              reviewCount: Number(listing.ratingCount),
+            }
+          : undefined,
+    });
+
+    return {
+      props: {
+        seo: {
+          title,
+          description,
+          image,
+          url,
+          pricePerDay: listing.pricePerDay ? Number(listing.pricePerDay) : null,
+          ratingAvg: Number(listing.ratingAvg ?? 0),
+          ratingCount: Number(listing.ratingCount ?? 0),
+          jsonLd,
+        },
+      },
+    };
+  } catch {
+    return { props: { seo: null } };
+  }
+};
+
+function formatCity(address: string | null | undefined): string {
+  if (!address) return 'Tunisia';
+  const parts = address.split(',').map((s) => s.trim()).filter(Boolean);
+  return parts[parts.length - 1] || 'Tunisia';
 }
